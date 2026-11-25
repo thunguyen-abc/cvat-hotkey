@@ -30,8 +30,8 @@ Nếu đã cài bản cũ, thay các file trong thư mục extension bằng bả
 
 ## Cập nhật từ GitHub
 
-Mở biểu tượng **CVAT Event Hotkeys** trong Chrome. Extension kiểm tra [GitHub Releases](https://github.com/thunguyen-abc/cvat-event-hotkeys/releases/latest) khi mở cửa sổ này và định kỳ mỗi sáu giờ. Khi có bản mới, biểu tượng hiện **NEW** và nút **Update** tải ZIP phát hành. Giải nén đè vào thư mục đang dùng, bấm **Reload** trong `chrome://extensions`, rồi tải lại CVAT. Chrome yêu cầu bước này với bản **Load unpacked**.
+Mở biểu tượng **CVAT Event Hotkeys** trong Chrome. Extension kiểm tra [GitHub Releases](https://github.com/thunguyen-abc/cvat-hotkey/releases/latest) khi mở cửa sổ này và định kỳ mỗi sáu giờ. Khi có bản mới, biểu tượng hiện **NEW** và nút **Update** tải ZIP phát hành. Giải nén đè vào thư mục đang dùng, bấm **Reload** trong `chrome://extensions`, rồi tải lại CVAT. Chrome yêu cầu bước này với bản **Load unpacked**.
 
-Khi phát hành, GitHub release cần có tag dạng `v1.4.0` và file đính kèm cùng phiên bản dạng `cvat-event-hotkeys-v1.4.0.zip`.
+Để phát hành phiên bản mới, cập nhật `version` trong `manifest.json`, push commit rồi push tag tương ứng, ví dụ `v1.4.1`. GitHub Actions đóng gói và đăng ZIP của tag đó lên Releases.
 
 Extension dùng giao diện CVAT để gắn, gỡ và lưu annotation khi bạn thao tác. Nút Complete & Next sử dụng phiên đăng nhập hiện tại để đọc thông tin tài khoản và danh sách job từ API trên cùng tên miền CVAT.

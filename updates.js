@@ -1,4 +1,4 @@
-const repository = 'thunguyen-abc/cvat-event-hotkeys';
+const repository = 'thunguyen-abc/cvat-hotkey';
 const alarmName = 'check-github-release';
 const installedVersion = chrome.runtime.getManifest().version;
 
