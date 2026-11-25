@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "CVAT Event Hotkeys",
-  "version": "1.5.1",
+  "version": "1.6.0",
   "description": "Adds CVAT event shortcuts, job actions, and a GitHub release update checker.",
   "permissions": ["alarms"],
   "host_permissions": ["https://api.github.com/*"],
@@ -15,7 +15,13 @@
   "content_scripts": [
     {
       "matches": ["https://cvat-tai.abcstudio.online/*"],
-      "js": ["hotkeys.js", "range-editor.js", "complete-next.js"],
+      "js": ["cvat-bridge.js"],
+      "world": "MAIN",
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://cvat-tai.abcstudio.online/*"],
+      "js": ["range-plan.js", "bridge-client.js", "hotkeys.js", "range-editor.js", "complete-next.js"],
       "css": ["complete-next.css"],
       "run_at": "document_idle"
     }

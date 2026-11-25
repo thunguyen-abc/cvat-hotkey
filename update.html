@@ -14,6 +14,7 @@
   #update { border: 1px solid #0f5d50; background: #116659; color: white; text-decoration: none; font-weight: 600; }
   #update:not([hidden]) { display: inline-block; }
   #install-help { font-size: 12px; }
+  #updater { margin-top: 13px; padding-top: 11px; border-top: 1px solid #d5dfe6; color: #506273; font-size: 12px; }
 </style>
 <h1>CVAT Event Hotkeys</h1>
 <p id="installed"></p>
@@ -21,5 +22,6 @@
 <a id="update" hidden target="_blank" rel="noopener noreferrer">Update</a>
 <button type="button" id="retry" hidden>Kiểm tra lại</button>
 <p id="install-help" hidden>Giải nén ZIP đè vào thư mục extension, bấm Reload trong chrome://extensions, rồi tải lại tab CVAT.</p>
+<p id="updater" hidden></p>
 <script src="update.js"></script>
 </html>

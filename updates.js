@@ -1,5 +1,6 @@
 const repository = 'thunguyen-abc/cvat-hotkey';
 const alarmName = 'check-github-release';
+const localAlarmName = 'check-local-files';
 const installedVersion = chrome.runtime.getManifest().version;
 
 function parseVersion(value) {
@@ -55,8 +56,30 @@ async function safeCheck() {
   }
 }
 
+// The desktop updater (updater/cvat-hotkey-updater.ps1) replaces the files of an
+// unpacked install on disk, writing manifest.json last. Chrome keeps running the
+// version it loaded, so compare the manifest on disk with the running one and
+// reload the extension once the new files are complete. Reloading the extension
+// does not reload CVAT tabs; open tabs keep the old scripts until they reload.
+async function activateLocalUpdate() {
+  try {
+    const response = await fetch(chrome.runtime.getURL('manifest.json'), { cache: 'no-store' });
+    if (!response.ok) return false;
+    const manifest = await response.json();
+    if (manifest?.name !== chrome.runtime.getManifest().name) return false;
+    // Any change counts: a newer release, or an older one restored by `rollback`.
+    if (!parseVersion(manifest.version) || manifest.version === installedVersion) return false;
+    chrome.runtime.reload();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function startChecks() {
   await chrome.alarms.create(alarmName, { periodInMinutes: 360 });
+  await chrome.alarms.create(localAlarmName, { periodInMinutes: 1 });
+  if (await activateLocalUpdate()) return;
   await safeCheck();
 }
 
@@ -64,9 +87,17 @@ chrome.runtime.onInstalled.addListener(() => { void startChecks(); });
 chrome.runtime.onStartup.addListener(() => { void startChecks(); });
 chrome.alarms.onAlarm.addListener(({ name }) => {
   if (name === alarmName) void safeCheck();
+  if (name === localAlarmName) void activateLocalUpdate();
 });
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
-  if (sender.url !== chrome.runtime.getURL('update.html') || message?.type !== 'check-release') return false;
-  void (async () => respond(await safeCheck()))();
-  return true;
+  if (sender.url !== chrome.runtime.getURL('update.html')) return false;
+  if (message?.type === 'check-release') {
+    void (async () => respond(await safeCheck()))();
+    return true;
+  }
+  if (message?.type === 'activate-local-update') {
+    void (async () => respond({ reloading: await activateLocalUpdate() }))();
+    return true;
+  }
+  return false;
 });

@@ -1,40 +1,11 @@
 'use strict';
 
-// Build the exact tag-only mutations. Existing destination tags are never toggled.
-function planCVATRangeEdit(tags, frames, mode, sources, target) {
-  const scope = new Set(frames);
-  const inRange = tags.filter((tag) => scope.has(tag.frame));
-  const destinationFrames = new Set(inRange.filter((tag) => tag.label_id === target?.id).map((tag) => tag.frame));
-  const changes = { create: [], update: [], delete: [] };
-  const attributes = () => (target.attributes || []).map((attribute) => ({
-    spec_id: attribute.id, value: String(attribute.default_value ?? ''),
-  }));
-  if (mode === 'add') {
-    for (const frame of frames) {
-      if (!destinationFrames.has(frame)) changes.create.push({
-        frame, label_id: target.id, source: 'manual', group: 0, attributes: attributes(),
-      });
-    }
-  } else {
-    for (const tag of inRange) {
-      if (mode === 'all' || (mode === 'remove' && sources.has(tag.label_id))) {
-        changes.delete.push(tag);
-      } else if (mode === 'replace' && sources.has(tag.label_id) && tag.label_id !== target.id) {
-        if (destinationFrames.has(tag.frame)) changes.delete.push(tag);
-        else {
-          changes.update.push({ ...tag, label_id: target.id, attributes: attributes() });
-          destinationFrames.add(tag.frame);
-        }
-      }
-    }
-  }
-  return changes;
-}
-
-function attachCVATRangeEditor(control, slider, anchor, api) {
+// planCVATRangeEdit comes from range-plan.js; cvatEventBridge and
+// describeCVATSave from bridge-client.js. The editor never calls the server: it reads and
+// changes the annotations CVAT holds in the browser, and CVAT's own save uploads them.
+function attachCVATRangeEditor(control, slider, anchor) {
   const { job, controller } = control;
   const signal = controller.signal;
-  const base = '/api/jobs/' + job.jobId;
   const key = 'cvat-event-range:' + job.jobId;
   const marks = { start: null, end: null };
   try {
@@ -96,6 +67,12 @@ function attachCVATRangeEditor(control, slider, anchor, api) {
     try { sessionStorage.setItem(key, JSON.stringify(marks)); } catch { /* Optional persistence. */ }
     paint();
   }
+  function resetMarks() {
+    marks.start = null;
+    marks.end = null;
+    try { sessionStorage.removeItem(key); } catch { /* Optional persistence. */ }
+    paint();
+  }
   start.onclick = () => mark('start');
   end.onclick = () => mark('end');
   edit.onclick = () => {
@@ -103,15 +80,6 @@ function attachCVATRangeEditor(control, slider, anchor, api) {
   };
   signal.addEventListener('abort', () => { group.remove(); band.remove(); }, { once: true });
   paint();
-
-  async function loadLabels() {
-    const labels = [];
-    for (let page = 1; ; page++) {
-      const data = await api.getJSON('/api/labels?job_id=' + job.jobId + '&page_size=100&page=' + page, signal);
-      labels.push(...data.results.filter((label) => ['any', 'tag'].includes(label.type)));
-      if (!data.next) return labels;
-    }
-  }
 
   function openEditor(low, high) {
     const dialog = element('dialog', undefined, 'cvat-event-clear-dialog cvat-range-dialog');
@@ -145,11 +113,10 @@ function attachCVATRangeEditor(control, slider, anchor, api) {
     document.body.append(dialog);
     dialog.showModal();
     let busy = false;
-    let needsReload = false;
     let tags = [];
     let labels = [];
-    let frames = [];
     let addFrames = [];
+    let snapshotKey = '';
     const selected = new Set();
     const close = () => dialog.close();
     signal.addEventListener('abort', close, { once: true });
@@ -157,33 +124,33 @@ function attachCVATRangeEditor(control, slider, anchor, api) {
       signal.removeEventListener('abort', close);
       dialog.remove();
     }, { once: true });
-    dialog.oncancel = (event) => { if (busy || needsReload) event.preventDefault(); };
+    dialog.oncancel = (event) => { if (busy) event.preventDefault(); };
     for (const eventType of ['keydown', 'keypress', 'keyup']) {
       dialog.addEventListener(eventType, (event) => event.stopPropagation());
     }
-    function reload() {
-      const url = new URL(location.href);
-      url.searchParams.set('frame', String(frame('now')));
-      location.replace(url.href);
-    }
-    cancel.onclick = () => needsReload ? reload() : close();
+    cancel.onclick = close;
 
-    function plan(input) {
-      const label = labels.find((item) => String(item.id) === target.value);
-      if (['add', 'replace'].includes(mode.value) && !label) return null;
-      return planCVATRangeEdit(input, mode.value === 'add' ? addFrames : frames, mode.value, selected, label);
+    function request() {
+      const targetId = target.value ? Number(target.value) : null;
+      return {
+        jobId: job.jobId, low, high, mode: mode.value, sources: [...selected],
+        targetId: ['add', 'replace'].includes(mode.value) ? targetId : null,
+      };
+    }
+    function plan() {
+      const { mode: operation, sources, targetId } = request();
+      if (['add', 'replace'].includes(operation) && targetId === null) return null;
+      return planCVATRangeEdit({ tags, low, high, addFrames, mode: operation, sources, targetId });
     }
     function preview() {
-      const change = plan(tags);
-      const counts = change ? [change.create.length, change.update.length, change.delete.length] : [0, 0, 0];
-      info.textContent = 'Thêm ' + counts[0] + ' · Đổi ' + counts[1] + ' · Xóa ' + counts[2] + ' tag';
-      apply.disabled = !counts.some(Boolean);
+      const counts = plan()?.counts ?? { add: 0, replace: 0, remove: 0 };
+      info.textContent = 'Thêm ' + counts.add + ' · Đổi ' + counts.replace + ' · Xóa ' + counts.remove + ' tag';
+      apply.disabled = busy || !(counts.add || counts.replace || counts.remove);
     }
     function display() {
       const present = new Map();
-      for (const tag of tags) if (tag.frame >= low && tag.frame <= high) {
-        present.set(tag.label_id, (present.get(tag.label_id) || 0) + 1);
-      }
+      for (const tag of tags) present.set(tag.labelId, (present.get(tag.labelId) || 0) + 1);
+      for (const id of [...selected]) if (!present.has(id)) selected.delete(id);
       const selectable = ['remove', 'replace'].includes(mode.value);
       sourceField.querySelector('legend').textContent = mode.value === 'remove' ? 'Chọn tag cần xóa'
         : mode.value === 'replace' ? 'Chọn tag cần đổi' : 'Tag hiện có trong khoảng';
@@ -199,6 +166,7 @@ function attachCVATRangeEditor(control, slider, anchor, api) {
         chip.setAttribute('aria-label', name + ' · ' + count);
         chip.disabled = !selectable;
         chip.setAttribute('aria-pressed', String(selected.has(id)));
+        chip.dataset.labelId = id;
         chip.onclick = () => {
           if (selected.has(id)) selected.delete(id);
           else {
@@ -210,86 +178,66 @@ function attachCVATRangeEditor(control, slider, anchor, api) {
           }
           preview();
         };
-        chip.dataset.labelId = id;
         chips.append(chip);
       }
       preview();
     }
+    function load(snapshot) {
+      tags = snapshot.tags;
+      labels = snapshot.labels;
+      addFrames = snapshot.addFrames;
+      snapshotKey = snapshot.key;
+    }
     mode.onchange = () => { selected.clear(); display(); };
     target.onchange = preview;
-    const endpoint = base + '/annotations';
-    async function patch(action, batch, version) {
-      const csrf = document.cookie.split(';').map((part) => part.trim()).find((part) => part.startsWith('csrftoken='));
-      if (!csrf) throw new Error('Hãy đăng nhập lại vào CVAT.');
-      const result = await fetch(endpoint + '?action=' + action, {
-        method: 'PATCH', credentials: 'same-origin', redirect: 'error',
-        signal: AbortSignal.any([signal, AbortSignal.timeout(60000)]),
-        headers: { Accept: 'application/vnd.cvat+json', 'Content-Type': 'application/json',
-          'X-CSRFTOKEN': decodeURIComponent(csrf.slice(10)) },
-        body: JSON.stringify({ version, tags: batch, shapes: [], tracks: [] }),
-      });
-      if (!result.ok) throw new Error('CVAT HTTP ' + result.status);
-      return (await result.json()).version;
-    }
+
     apply.onclick = async () => {
       if (apply.disabled || busy) return;
-      const initial = plan(tags);
+      const change = plan();
+      if (!change) return;
       busy = true;
       for (const node of dialog.querySelectorAll('select, button')) node.disabled = true;
+      info.textContent = 'Đang cập nhật tag trên trình duyệt…';
       try {
-        info.textContent = 'Đang lưu các chỉnh sửa hiện tại…';
-        await api.saveCurrentAnnotations(signal);
-        const fresh = await api.readTags(endpoint, signal);
-        const change = plan(fresh.tags);
-        if (JSON.stringify(initial) !== JSON.stringify(change)) {
-          tags = fresh.tags;
+        const { targetId } = request();
+        const result = await cvatEventBridge.call('applyRange', {
+          jobId: job.jobId, low, high, key: snapshotKey, targetId,
+          create: change.create, remove: change.delete.map((item) => item.clientID),
+        }, 120000);
+        busy = false;
+        if (result.stale) {
+          load(result.snapshot);
           mode.disabled = target.disabled = cancel.disabled = false;
           display();
-          info.textContent += ' · Dữ liệu đã thay đổi. Kiểm tra lại rồi bấm Áp dụng.';
+          info.textContent += ' · Dữ liệu vừa thay đổi. Kiểm tra lại rồi bấm Áp dụng.';
           return;
         }
-        let version = fresh.version;
-        for (const action of ['create', 'update', 'delete']) {
-          if (!change[action].length) continue;
-          signal.throwIfAborted();
-          needsReload = true;
-          version = await patch(action, change[action], version);
-        }
-        const result = await api.readTags(endpoint, signal);
-        const pending = plan(result.tags);
-        if (Object.values(pending).some((batch) => batch.length)) throw new Error('Khoảng frame vẫn còn thay đổi cần kiểm tra.');
-        reload();
+        const { add, replace, remove } = change.counts;
+        control.status.textContent = 'Frame ' + low + '–' + high + ': thêm ' + add + ', đổi ' + replace + ', xóa ' + remove +
+          ' tag. ' + describeCVATSave(result.save);
+        resetMarks();
+        close();
       } catch (error) {
         if (signal.aborted) return;
-        info.textContent = error.message;
-        cancel.disabled = false;
-        if (needsReload) cancel.textContent = 'Tải lại job';
-        else { mode.disabled = target.disabled = false; display(); info.textContent = error.message; }
-      } finally { busy = false; }
+        busy = false;
+        mode.disabled = target.disabled = cancel.disabled = false;
+        display();
+        info.textContent = error.message + ' Khoảng frame và lựa chọn vẫn được giữ để thử lại.';
+      }
     };
+
     mode.disabled = target.disabled = true;
     void (async () => {
       try {
-        info.textContent = 'Đang lưu các chỉnh sửa để đọc đủ tag trong khoảng…';
-        await api.saveCurrentAnnotations(signal);
+        if (!await cvatEventBridge.ready()) throw new Error('CVAT chưa sẵn sàng cho extension. Đợi job tải xong rồi thử lại.');
+        const snapshot = await cvatEventBridge.call('rangeSnapshot', { jobId: job.jobId, low, high }, 60000);
         if (!dialog.open) return;
-        const [snapshot, options, meta] = await Promise.all([
-          api.readTags(endpoint, signal), loadLabels(), api.getJSON(base + '/data/meta', signal),
-        ]);
-        if (!dialog.open) return;
-        tags = snapshot.tags;
-        labels = options;
-        frames = Array.from({ length: high - low + 1 }, (_, i) => low + i);
-        const deleted = new Set(meta.deleted_frames || []);
-        const included = Array.isArray(meta.included_frames) ? new Set(meta.included_frames) : null;
-        const step = Number(/step\s*=\s*(\d+)/.exec(meta.frame_filter || '')?.[1] || 1);
-        const first = frame('min');
-        addFrames = frames.filter((f) => !deleted.has(f) && (!included || included.has(meta.start_frame + (f - first) * step)));
+        load(snapshot);
         target.add(new Option('Chọn tag…', ''));
         for (const label of labels) target.add(new Option(label.name, String(label.id)));
         mode.disabled = target.disabled = false;
         display();
-      } catch (error) { info.textContent = error.message; }
+      } catch (error) { if (dialog.open) info.textContent = error.message; }
     })();
   }
 }

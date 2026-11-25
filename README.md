@@ -12,37 +12,90 @@ Bấm một lần để gắn tag vào frame hiện tại. Bấm lại để g�
 
 ## Chỉnh tag theo khoảng frame
 
-Chọn frame đầu rồi bấm **Start**, chọn frame cuối rồi bấm **End**. Thanh tiến độ tô xanh khoảng đã chọn, bao gồm cả hai đầu. Bấm **Edit** để lưu các chỉnh sửa đang có và xem danh sách tag mới nhất. Hộp thoại hiển thị số lượng thay đổi trước khi bấm **Áp dụng**.
+Chọn frame đầu rồi bấm **Start**, chọn frame cuối rồi bấm **End**. Thanh tiến độ tô xanh khoảng đã chọn, bao gồm cả hai đầu. Bấm **Edit** để xem các tag trong khoảng, gồm cả thay đổi chưa lưu. Hộp thoại hiển thị số tag sẽ thêm, đổi và xóa trước khi bấm **Áp dụng**.
 
 - **Thêm tag** chỉ thêm vào các frame hợp lệ còn thiếu tag đích. Frame đã có tag đích được bỏ qua. Các tag khác trên cùng frame được giữ lại.
 - **Đổi tag** cho phép chọn một tag nguồn và một tag đích. Nếu frame đã có cả hai, extension giữ tag đích và gỡ tag nguồn.
 - **Xóa tag đã chọn** cho phép chọn nhiều nhãn. Ban đầu các nút đều xám. Bấm để chọn hoặc bỏ chọn.
 - **Xóa toàn bộ tag trong khoảng** áp dụng cho tất cả các nhãn tag trong hai mốc.
 
-Khi áp dụng, extension lưu các chỉnh sửa đang có, kiểm tra dữ liệu mới nhất, cập nhật tag và tải lại frame hiện tại.
+Extension sửa tag ngay trên trình duyệt, giống như khi bạn gắn tag bằng tay. Trang không tải lại và bạn vẫn ở frame hiện tại. Sau khi áp dụng, Start và End trở về trạng thái chưa chọn để bạn chọn khoảng khác. Nếu có lỗi, khoảng và lựa chọn được giữ lại để thử lại. Nếu tag trong khoảng vừa thay đổi sau khi mở hộp thoại, extension không áp dụng mà hiện số liệu mới để bạn kiểm tra lại.
+
+Thay đổi được lưu lên server ở lần lưu tiếp theo của CVAT: theo **Auto save** trong Settings, khi bấm **Save** (Ctrl+S), hoặc khi bấm **Complete & Next**. Dòng trạng thái cạnh Complete & Next cho biết thay đổi đã lưu chưa.
 
 ## Hoàn tất rồi mở job tiếp theo
 
-Bấm **Complete & Next** cạnh **Menu**. Extension tự bấm **Continue** trong hộp xác nhận hoàn tất của CVAT. CVAT lưu annotation và chuyển job hiện tại sang **Completed**. Extension mở job chưa hoàn tất có ID lớn hơn gần nhất được giao cho bạn trong cùng task. Nếu chỉ còn job có ID nhỏ hơn, extension quay về job chưa hoàn tất đầu tiên của bạn. Khi không còn job nào phù hợp, extension mở trang task.
+Bấm **Complete & Next** cạnh **Menu**. Extension tự bấm **Continue** trong hộp xác nhận hoàn tất của CVAT. CVAT lưu các thay đổi chưa lưu và chuyển job hiện tại sang **Completed**. Extension mở job chưa hoàn tất (New, In progress, Rejected) có ID lớn hơn gần nhất được giao cho bạn trong cùng task. Nếu chỉ còn job có ID nhỏ hơn, extension quay về job chưa hoàn tất có ID nhỏ nhất của bạn. Khi không còn job nào phù hợp, extension mở trang task. Server tự lọc theo task, người được giao, trạng thái và ID, nên extension chỉ hỏi đúng một job mỗi lần, không tải danh sách job của task.
 
 Nút yêu cầu job hiện tại được giao cho tài khoản đang đăng nhập. Nếu CVAT báo lỗi hoặc chưa xác nhận hoàn tất, bạn vẫn ở job hiện tại.
 
 ## Xóa toàn bộ tag của job hiện tại
 
-Bấm **Clear All Tags** để xem số tag đã lưu. Bấm **Xóa toàn bộ tag** trong hộp xác nhận để lưu các chỉnh sửa hiện tại và xóa tag ở mọi frame của job. Các box, shape và track vẫn giữ nguyên. Extension kiểm tra lại kết quả rồi tải lại job. Thao tác xóa không thể hoàn tác bằng Undo của CVAT.
+Bấm **Clear All Tags** để xem số tag của job, gồm cả thay đổi chưa lưu. Bấm **Xóa toàn bộ tag** để xóa tag ở mọi frame ngay trên trình duyệt. Các box, shape và track vẫn giữ nguyên, và trang không tải lại. CVAT lưu việc xóa ở lần lưu tiếp theo, giống phần chỉnh theo khoảng frame. Trước khi lưu, bạn có thể bỏ thay đổi bằng Undo (Ctrl+Z, mỗi lần một tag) hoặc tải lại trang mà không lưu.
+
+## Tải lên server
+
+Extension được thiết kế để không làm server CVAT quá tải:
+
+| Thao tác | Request extension gửi |
+| --- | --- |
+| Phím 1/2/3, Start, End | Không có |
+| Edit: mở hộp thoại và áp dụng | Không có: đọc và sửa annotation CVAT đã tải sẵn trên trình duyệt |
+| Clear All Tags | Không có |
+| Lưu (Auto save, Save, Complete & Next) | CVAT tự gửi, chỉ gồm các tag đã đổi: tối đa 1 request cho tag sửa, 1 cho tag xóa, 1 cho tag mới |
+| Complete & Next | Ngoài phần lưu của CVAT: 1 GET kiểm tra job đã Completed, rồi 1–2 GET tìm job tiếp theo (`page_size=1`) |
+
+Các GET của extension đi lần lượt, cách nhau ít nhất 250 ms. Nếu server trả 429, 502, 503 hoặc 504, extension đợi rồi thử lại tối đa hai lần và tôn trọng `Retry-After`.
 
 ## Cài trên Chrome
 
-1. Mở `chrome://extensions` trong Chrome và bật **Developer mode**.
-2. Chọn **Load unpacked**, rồi chọn thư mục `cvat-event-hotkeys` chứa `manifest.json`.
-3. Tải lại tab CVAT hoặc mở một job. Kiểm tra **Tag annotation** và ba dòng đầu ở **Shortcuts for labels**.
+1. Tải `cvat-event-hotkeys-vX.Y.Z.zip` mới nhất ở [GitHub Releases](https://github.com/thunguyen-abc/cvat-hotkey/releases/latest). Giải nén vào một thư mục cố định, ví dụ `C:\Users\<tên bạn>\cvat-event-hotkeys`. Không để trong Downloads hay thư mục tạm.
+2. Mở `chrome://extensions` trong Chrome và bật **Developer mode**. Giữ chế độ này luôn bật. Nếu tắt, Chrome sẽ vô hiệu hóa extension ở lần tải lại tiếp theo.
+3. Chọn **Load unpacked**, rồi chọn thư mục vừa giải nén (thư mục chứa `manifest.json`).
+4. Tải lại tab CVAT hoặc mở một job. Kiểm tra **Tag annotation** và ba dòng đầu ở **Shortcuts for labels**.
+5. Nên làm: bật trình cập nhật tự động theo hướng dẫn ở mục dưới.
 
-Nếu đã cài bản cũ, thay các file trong thư mục extension bằng bản mới, bấm **Reload** trên thẻ extension trong `chrome://extensions`, rồi tải lại tab CVAT.
+## Cập nhật tự động (Windows)
 
-## Cập nhật từ GitHub
+Chrome không tự cập nhật extension cài bằng **Load unpacked**. Thư mục `updater` trong ZIP có một trình cập nhật chạy trên máy bạn:
 
-Mở biểu tượng **CVAT Event Hotkeys** trong Chrome. Extension kiểm tra [GitHub Releases](https://github.com/thunguyen-abc/cvat-hotkey/releases/latest) khi mở cửa sổ này và định kỳ mỗi sáu giờ. Khi có bản mới, biểu tượng hiện **NEW** và nút **Update** tải ZIP phát hành. Giải nén đè vào thư mục đang dùng, bấm **Reload** trong `chrome://extensions`, rồi tải lại CVAT. Chrome yêu cầu bước này với bản **Load unpacked**.
+1. Mở thư mục extension, vào `updater`, nhấp đúp **`Setup-Updater.cmd`**.
+2. Đọc phần mô tả và xác nhận thư mục extension. Nhấn Enter để dùng thư mục được gợi ý.
+3. Chọn chế độ:
+   - **1. Tự động**: tải và cài bản mới ngay khi GitHub có release.
+   - **2. Hỏi trước** (mặc định): hiện hộp thoại Windows, chỉ cài khi bạn bấm **Yes**. Nếu bấm **No**, lần kiểm tra sau sẽ hỏi lại.
+4. Gõ `y` để đồng ý. Trình cập nhật tạo lịch chạy mỗi khi đăng nhập Windows và mỗi 3 giờ, rồi kiểm tra ngay một lần.
 
-Để phát hành phiên bản mới, cập nhật `version` trong `manifest.json`, push commit lên `main`, rồi push tag tương ứng, ví dụ `v1.4.2`. GitHub Actions đóng gói và đăng ZIP của tag đó lên Releases.
+Sau khi cài file mới, extension tự kích hoạt bản mới trong khoảng 1 phút, hoặc ngay khi bạn mở cửa sổ extension. Bạn không cần bấm **Reload** trong `chrome://extensions`. Tải lại tab CVAT đang mở để dùng bản mới. Annotation chưa lưu trong tab không bị ảnh hưởng.
 
-Extension dùng giao diện CVAT để gắn, gỡ và lưu annotation khi bạn thao tác. Nút Complete & Next sử dụng phiên đăng nhập hiện tại để đọc thông tin tài khoản và danh sách job từ API trên cùng tên miền CVAT.
+Ở cả hai chế độ, trình cập nhật luôn hỏi lại nếu bản mới xin thêm quyền Chrome hoặc thêm trang web. Trình cập nhật không cần quyền Administrator.
+
+Các lệnh khác: chạy `Setup-Updater.cmd <lệnh>` trong thư mục `updater`.
+
+| Lệnh | Tác dụng |
+| --- | --- |
+| `status` | Xem chế độ, lần kiểm tra cuối, lịch chạy và nhật ký |
+| `check` | Kiểm tra và cài bản mới ngay |
+| `setup` | Chạy lại thiết lập để đổi chế độ hoặc thư mục |
+| `rollback` | Quay về bản trước. Bản vừa gỡ sẽ không tự cài lại. |
+| `uninstall` | Gỡ lịch chạy và dữ liệu của trình cập nhật. Extension vẫn giữ nguyên. |
+
+Chi tiết cách hoạt động, kiểm tra bảo mật và xử lý lỗi: [docs/auto-update.md](docs/auto-update.md).
+
+## Cập nhật thủ công
+
+Mở biểu tượng **CVAT Event Hotkeys** trong Chrome. Extension kiểm tra [GitHub Releases](https://github.com/thunguyen-abc/cvat-hotkey/releases/latest) khi mở cửa sổ này và định kỳ mỗi sáu giờ. Khi có bản mới, biểu tượng hiện **NEW** và nút **Update** tải ZIP phát hành. Giải nén đè vào thư mục đang dùng, bấm **Reload** trong `chrome://extensions`, rồi tải lại CVAT. Cửa sổ này cũng cho biết máy đã cài trình cập nhật tự động chưa và lần kiểm tra cuối.
+
+## Phát hành phiên bản mới
+
+1. Cập nhật `version` trong `manifest.json`, ví dụ `1.5.2`.
+2. Push commit lên `main`, rồi push tag tương ứng: `git tag v1.5.2`, `git push origin v1.5.2`.
+3. GitHub Actions kiểm tra cú pháp, đóng gói ZIP (gồm cả thư mục `updater`), tạo file `.sha256` và đăng cả hai lên Releases.
+
+Sau khi release xuất hiện, các máy đã bật trình cập nhật sẽ nhận bản mới trong vòng 3 giờ, hoặc ở lần đăng nhập Windows tiếp theo. Vì vậy, ai có quyền push tag vào repository này đều có thể đưa mã mới lên máy của mọi người dùng. Xem khuyến nghị ở [docs/auto-update.md](docs/auto-update.md#bảo-vệ-repository).
+
+Tài liệu cho người phát triển: [docs/development.md](docs/development.md).
+
+## Quyền và dữ liệu
+
+Extension dùng giao diện CVAT để gắn, gỡ và lưu annotation khi bạn thao tác. Nút Complete & Next dùng phiên đăng nhập hiện tại để đọc thông tin tài khoản và danh sách job từ API trên cùng tên miền CVAT. Ngoài CVAT, extension chỉ gọi `api.github.com` để kiểm tra phiên bản mới.

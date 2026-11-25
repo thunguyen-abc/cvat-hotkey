@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Simulated CVAT job</title>
+<!--
+  Simulated CVAT 2.x annotation page for regression tests (tests/simulated_cvat.py).
+  It mimics the parts the extension touches: the header Save/Menu buttons, the player
+  slider, window.cvatUI with core/store/dispatch/actionCreators, an in-memory annotation
+  collection, CVAT's diff-only save and the "Finish the job" flow.
+-->
+<style>
+  body { font: 14px system-ui, sans-serif; margin: 16px; }
+  .cvat-player-slider { position: relative; width: 600px; height: 12px; background: #ddd; margin: 12px 0; }
+  .menu, .modal, .success { border: 1px solid #999; padding: 8px; margin: 8px 0; }
+</style>
+<div class="header">
+  <button class="cvat-annotation-header-save-button">Save</button>
+  <button class="cvat-annotation-header-menu-button">Menu</button>
+</div>
+<div id="menu" class="menu" hidden><div role="menuitem" data-menu-id="rc-finish_job">Finish the job</div></div>
+<div id="modal" class="modal cvat-modal-content-finish-job" hidden>
+  Would you like to finish the job? <button class="ant-btn ant-btn-primary">Continue</button>
+</div>
+<div id="success-area"></div>
+<div class="player">
+  <div><input class="cvat-player-frame-selector" value="0"></div>
+  <div class="cvat-player-slider"><div role="slider" aria-valuemin="0" aria-valuemax="99" aria-valuenow="0"></div></div>
+</div>
+<script>
+(() => {
+  'use strict';
+  const jobId = Number(location.pathname.match(/jobs\/(\d+)/)[1]);
+  sessionStorage.setItem('loads', String(Number(sessionStorage.getItem('loads') || 0) + 1));
+
+  const labels = [
+    { id: 1, name: 'event_smoke', type: 'tag' },
+    { id: 2, name: 'event_drinking', type: 'tag' },
+    { id: 3, name: 'event_phone', type: 'any' },
+    { id: 9, name: 'car', type: 'rectangle' },
+  ];
+  const deletedFrames = new Set([12, 13]);
+  const objects = new Map();
+  let nextClientID = 1;
+  let nextServerID = 1000;
+  function add(type, frame, labelId, serverID) {
+    const object = { clientID: nextClientID++, serverID, type, frame, labelId, removed: false };
+    objects.set(object.clientID, object);
+    return object;
+  }
+  for (let frame = 0; frame < 100; frame += 1) {
+    if (frame % 3 === 0) add('tag', frame, 1, nextServerID++);
+    if (frame % 5 === 0) add('tag', frame, 2, nextServerID++);
+    if (frame % 10 === 0) add('shape', frame, 9, nextServerID++);
+  }
+
+  class ObjectState {
+    constructor({ objectType, label, frame, clientID }) {
+      this.objectType = objectType;
+      this.label = label;
+      this.frame = frame;
+      this.clientID = clientID;
+    }
+    async delete(frame, force) {
+      const object = objects.get(this.clientID);
+      if (!object || object.removed || object.frame !== frame || !force) return false;
+      object.removed = true;
+      return true;
+    }
+  }
+  const stateOf = (object) => new ObjectState({
+    objectType: object.type, label: labels.find((label) => label.id === object.labelId), frame: object.frame, clientID: object.clientID,
+  });
+  const live = () => [...objects.values()].filter((object) => !object.removed);
+
+  const job = {
+    id: jobId, taskId: 12, startFrame: 0, stopFrame: 99, state: 'in progress', assignee: { id: 5, username: 'annotator' }, labels,
+    annotations: {
+      async export() {
+        const json = (object) => ({ clientID: object.clientID, frame: object.frame, label_id: object.labelId, ...(object.serverID ? { id: object.serverID } : {}) });
+        return { tags: live().filter((o) => o.type === 'tag').map(json), shapes: live().filter((o) => o.type === 'shape').map(json), tracks: [] };
+      },
+      async get(frame) { return live().filter((object) => object.frame === frame).map(stateOf); },
+      async put(states) {
+        for (const state of states) {
+          if (state.objectType !== 'tag' || !state.label) throw new Error('bad state');
+          add('tag', state.frame, state.label.id, null);
+        }
+      },
+      hasUnsavedChanges() { return [...objects.values()].some((o) => (o.removed && o.serverID) || (!o.removed && !o.serverID)); },
+    },
+    frames: {
+      async search({ notDeleted }, from, to) {
+        for (let frame = from; frame <= to; frame += 1) if (!notDeleted || !deletedFrames.has(frame)) return frame;
+        return null;
+      },
+    },
+    actions: { async get() { return []; } },
+  };
+
+  const slider = document.querySelector('[role="slider"]');
+  const state = {
+    annotation: {
+      job: { instance: job },
+      player: { frame: { number: 0 } },
+      annotations: { states: [], saving: { uploading: false }, filters: [], zLayer: { min: 0, max: 0 } },
+    },
+    settings: { workspace: { autoSave: false, autoSaveInterval: 900000, showAllInterpolationTracks: false } },
+    auth: { user: { id: 5, username: 'annotator' } },
+  };
+  window.__sim = { objects, job, state, refreshes: 0, labels,
+    tagsOn(frame) { return live().filter((o) => o.frame === frame && o.type === 'tag').map((o) => o.labelId).sort(); },
+    count(type, labelId) { return live().filter((o) => o.type === type && (labelId === undefined || o.labelId === labelId)).length; },
+    setFrame(frame) { state.annotation.player.frame.number = frame; slider.setAttribute('aria-valuenow', String(frame)); },
+    addTag(frame, labelId) { add('tag', frame, labelId, null); },
+  };
+  const store = { getState: () => state, subscribe() { return () => {}; } };
+  const dispatch = (action) => {
+    if (typeof action === 'function') return action(dispatch, store.getState);
+    if (action.type === 'FETCH_ANNOTATIONS_SUCCESS') state.annotation.annotations.states = action.payload.states;
+    return action;
+  };
+  const actionCreators = {
+    changeFrameAsync: (frame, fill, step, force) => async () => {
+      if (!force && frame === state.annotation.player.frame.number) return;
+      window.__sim.refreshes += 1;
+      state.annotation.annotations.states = await job.annotations.get(frame);
+    },
+  };
+  const core = { classes: { ObjectState }, enums: { ObjectType: { TAG: 'tag', SHAPE: 'shape', TRACK: 'track' } } };
+
+  // CVAT defines window.cvatUI after the React app mounts.
+  setTimeout(() => {
+    Object.defineProperty(window, 'cvatUI', { value: Object.freeze({
+      registerComponent(builder) { builder({ dispatch, actionCreators, core, store }); },
+    }) });
+    document.dispatchEvent(new CustomEvent('plugins.ready'));
+  }, 400);
+
+  // CVAT's diff-only save: one PATCH per non-empty action.
+  const save = document.querySelector('.cvat-annotation-header-save-button');
+  async function nativeSave() {
+    state.annotation.annotations.saving.uploading = true;
+    save.classList.add('cvat-annotation-disabled-header-button');
+    try {
+      const all = [...objects.values()];
+      const deleted = all.filter((o) => o.removed && o.serverID);
+      const created = all.filter((o) => !o.removed && !o.serverID);
+      const send = async (action, list) => {
+        if (!list.length) return null;
+        const body = { version: 1, tags: list.map((o) => ({ id: o.serverID, frame: o.frame, label_id: o.labelId })), shapes: [], tracks: [] };
+        const response = await fetch(`/api/jobs/${jobId}/annotations?action=${action}`, { method: 'PATCH', body: JSON.stringify(body) });
+        if (!response.ok) throw new Error('save failed');
+        return response.json();
+      };
+      await send('delete', deleted);
+      for (const object of deleted) objects.delete(object.clientID);
+      const result = await send('create', created);
+      if (result) created.forEach((object, index) => { object.serverID = result.tags[index].id; });
+    } finally {
+      state.annotation.annotations.saving.uploading = false;
+      save.classList.remove('cvat-annotation-disabled-header-button');
+    }
+  }
+  save.addEventListener('click', () => { void nativeSave(); });
+
+  const menu = document.getElementById('menu');
+  const modal = document.getElementById('modal');
+  document.querySelector('.cvat-annotation-header-menu-button').addEventListener('click', () => { menu.hidden = !menu.hidden; });
+  menu.querySelector('[role="menuitem"]').addEventListener('click', () => { menu.hidden = true; modal.hidden = false; });
+  modal.querySelector('button').addEventListener('click', async () => {
+    modal.hidden = true;
+    await nativeSave();
+    await fetch(`/api/jobs/${jobId}`, { method: 'PATCH', body: JSON.stringify({ state: 'completed' }) });
+    const done = document.createElement('div');
+    done.className = 'success cvat-annotation-job-finished-success';
+    done.textContent = 'Job finished';
+    document.getElementById('success-area').append(done);
+  });
+})();
+</script>
+</html>

@@ -1,0 +1,142 @@
+# CVAT Event Hotkeys: development guide
+
+This guide is for developers who continue work on this repository. User documentation is in the [README](../README.md) (Vietnamese).
+
+## Project
+
+- Repository: https://github.com/thunguyen-abc/cvat-hotkey, branch `main`.
+- Platform: Chrome extension, Manifest V3, installed with **Load unpacked**.
+- Target site: https://cvat-tai.abcstudio.online. Reference job: `/tasks/681/jobs/6306`.
+- Latest release: `v1.6.0` (desktop updater, in-memory tag editing). Check `gh release list` before you choose the next version.
+
+The extension adds features to the existing CVAT annotation UI. It does not need any change to the CVAT server. Continue with this codebase; do not rewrite it.
+
+## Source layout
+
+| File | Purpose |
+| --- | --- |
+| `manifest.json` | Extension config and version. The release workflow requires `version` to equal the pushed tag. |
+| `cvat-bridge.js` | Runs in the page's **MAIN** world. Registers through `window.cvatUI.registerComponent` and works on the job CVAT holds in memory: reads tags, applies range plans, clears tags, refreshes the view. Makes no network request. |
+| `range-plan.js` | Pure planner for range edits (add, replace, remove selected, remove all). |
+| `bridge-client.js` | Isolated-world client for the bridge (DOM events carrying JSON), the rate-limited GET queue, and the "saved or not" status text. |
+| `hotkeys.js` | Keys `1`/`2`/`3` toggle `event_smoke`/`event_drinking`/`event_phone` on the current frame. Switches Standard jobs to Tag annotation once per job load. |
+| `range-editor.js` | Start/End/Edit range controls, the progress-bar highlight and the range tag editor dialog. |
+| `complete-next.js` | **Complete & Next** and **Clear All Tags** buttons. |
+| `tests/fake-cvat.html`, `tests/simulated_cvat.py` | Simulated CVAT job and the regression test. Not shipped in the ZIP. |
+| `complete-next.css` | Styling for every injected control and dialog. |
+| `updates.js` | Service worker. Checks GitHub Releases every 6 h and sets the `NEW` badge. Activates new files that the desktop updater wrote to disk (see below). |
+| `update.html`, `update.js` | Toolbar popup: installed version, release check, manual ZIP link, desktop-updater status. |
+| `updater/cvat-hotkey-updater.ps1` | Windows desktop updater: `setup`, `check`, `status`, `rollback`, `uninstall`. Must be saved as **UTF-8 with BOM**. |
+| `updater/Setup-Updater.cmd` | Double-click launcher for the script. |
+| `.github/workflows/publish.yml` | On a `v*` tag push: syntax checks, packaging, SHA-256 file, GitHub Release. |
+| `docs/auto-update.md` | Updater design, security review, troubleshooting (Vietnamese). |
+
+Content scripts do not call `chrome.*` APIs. This is deliberate: when the extension reloads itself, the scripts already in open CVAT tabs keep working until the page reloads. Keep it that way, or handle invalidated extension contexts first.
+
+## Working with CVAT's in-memory annotations
+
+The deployed server runs CVAT **2.56.1** (`/api/server/about`). When a job opens, CVAT loads all of its annotations into a client-side collection (cvat-core). It saves by comparing that collection with the copy it last received from the server, and sends only the difference: one `PATCH …/annotations?action=update`, one `action=delete` and one `action=create`, each only if non-empty. Each is retried on 504. Autosave runs on the user's `autoSaveInterval`. "Finish the job" saves first, then sets the state to completed.
+
+The extension therefore never writes annotations itself. It changes the collection the way CVAT's tag sidebar does, and leaves the upload to CVAT's save:
+
+- **Plugin entry:** `window.cvatUI.registerComponent(builder)`. The builder receives `{ core, store, dispatch, actionCreators }`. `cvat-bridge.js` keeps that object. Chrome injects a file only once per page even when two `content_scripts` entries list it, so the MAIN-world entry contains `cvat-bridge.js` only.
+- **Read:** `store.getState().annotation.job.instance` is the job. `job.annotations.export()` lists tags with `clientID`, `frame` and `label_id`. Labels come from `job.labels`. Deleted frames and frame filters come from `job.frames.search({ notDeleted: true }, from, to)`, which reads cached frame meta.
+- **Write:** create tags with `job.annotations.put([new core.classes.ObjectState({ objectType: core.enums.ObjectType.TAG, label, frame })])`. Delete them with `state.delete(frame, true)` on the states from `job.annotations.get(frame, false, [])`. Each delete is one Undo step.
+- **Refresh:** `dispatch(actionCreators.changeFrameAsync(frame, false, 1, true))` re-renders the current frame from the collection and the cached image. If CVAT skips it (canvas busy), the bridge dispatches `FETCH_ANNOTATIONS_SUCCESS` with the same payload shape CVAT uses.
+- **Safety:** the bridge refuses to work while `annotation.annotations.saving.uploading` is true. `rangeSnapshot` returns a fingerprint of the tags in the range. `applyRange` re-reads the live tags, refuses a changed fingerprint (`stale`), checks every planned delete and create (no tag outside the range, no duplicate target), and only then applies.
+
+These are internal CVAT structures, not a published API. They match 2.56.1. After a CVAT upgrade, run `tests/simulated_cvat.py` and test once on a real job. If they change, update the bridge.
+
+### Server requests per feature
+
+| Feature | Requests made by the extension |
+| --- | --- |
+| Hotkeys, Start/End | none |
+| Edit (open, preview, apply) | none |
+| Clear All Tags | none |
+| Saving | none: CVAT's save sends only changed tags, at most 3 requests |
+| Complete & Next | 1 GET to confirm Completed, plus 1–2 GETs `/api/jobs?filter=…&page_size=1`. `users/self` and the job are read from the store; 2 GETs are used only if the bridge is unavailable. If the server rejects the JSON filter (HTTP 400), the old scan of 100 jobs per page is used, capped at 20 pages. |
+
+All direct GETs go through `cvatEventRequests` in `bridge-client.js`: one request in flight, ≥ 250 ms apart, 2 retries on 429/502/503/504 with backoff and `Retry-After` (≤ 30 s). v1.5.1 and earlier issued several full `GET …/annotations` per Edit or Clear and reloaded the whole page afterwards. Those calls are gone.
+
+## Update mechanism
+
+1. A tag push publishes `cvat-event-hotkeys-vX.Y.Z.zip` and `cvat-event-hotkeys-vX.Y.Z.zip.sha256`.
+2. On each user's machine, the scheduled task runs `cvat-hotkey-updater.ps1 check -Scheduled` at logon and every 3 h. It verifies the ZIP (SHA-256 against the GitHub API `digest` and the `.sha256` asset, path allowlist, manifest name and version, permission diff). In `confirm` mode it asks first. Then it backs up the current install and writes the new files, with `manifest.json` last.
+3. `updates.js` fetches its own `manifest.json` from disk every minute, on browser startup and when the popup opens. When the version differs from the running one, it calls `chrome.runtime.reload()`.
+
+Points that are easy to break:
+
+- **Permission changes.** The updater asks the user whenever a release adds permissions, host permissions, content-script matches, `externally_connectable` or `web_accessible_resources` entries, even in `auto` mode. Explain every new permission in the release notes.
+- **New file types or folders.** The updater accepts only these extensions: `.js .css .html .json .md .txt .png .svg .ps1 .cmd`. Folders can be at most one level deep, and names cannot start with `.` or `_`. Users run their installed copy of the updater when the next release arrives. If a release breaks these rules, every installed updater rejects it, so widen the allowlist in one release before you depend on it in a later one.
+- **Packaging list.** `publish.yml` zips an explicit file list plus the `updater` folder. Add new files there.
+- **Encoding.** Windows PowerShell 5.1 reads a script without a BOM as ANSI. The workflow fails if the BOM is missing.
+
+Verified on 2026-11-25 on Windows 10 with PowerShell 5.1 and Chromium 1248:
+
+- Install, no-op re-check, rollback, skip after rollback, and confirm mode (decline and accept) against the real v1.5.1 release.
+- Hostile ZIPs are rejected: `..`, absolute paths, nested folders, `.exe`, `con.js`, hidden and `_` names, duplicates, wrong name, wrong version, missing manifest.
+- A release that adds permissions is flagged.
+- Non-HTTPS and non-GitHub URLs are refused, and so is a git working copy as the extension folder.
+- The scheduled task registers as a standard (non-admin) user.
+- An extension loaded as unpacked switches to the new version after a disk change: at once when the popup opens, and within 80 s from the alarm alone. Chrome keeps it enabled only while Developer mode is on.
+
+## Range editor: status and remaining work
+
+Done after v1.5.1, in the change that added the bridge:
+
+- Edit and Clear All Tags work on CVAT's in-memory annotations. No page reload, no extension request; the current job and frame stay as they are.
+- The new tags show at once. CVAT's own save uploads them (diff only), so a later native Save cannot overwrite them with stale state: they *are* CVAT's state.
+- Start/End and the highlight reset after a successful Apply. On failure the range and the selection stay for a retry.
+- The dialog blocks double submission, marks destructive operations, previews add/replace/remove counts, and refuses to apply if the tags in the range changed after the preview.
+
+Still open, from the original handover:
+
+1. **Several operations in one dialog.** Today the dialog applies one operation (add, replace, remove selected or remove all) per Apply. Several Applies before one save already cost no extra requests, but the handover asks for an operation list in one dialog. Compute the final tag set for each frame from the whole list, in the order the user added the operations, show that order in the preview, and never resolve an ambiguous conflict silently. `range-plan.js` is the place for it. The bridge already accepts any concrete plan of creates and deletes and validates it.
+2. **Live verification** on an authorized test job (see the checklist).
+
+The local `outputs/cvat-event-hotkeys/` and `work/` folders from the previous session were never committed. Their batch-operation draft is superseded by the bridge design.
+
+Rules that must stay:
+
+- The range includes both Start and End.
+- No duplicate tags.
+- Frames outside the range do not change.
+- Boxes, polygons and tracks do not change.
+
+### Acceptance checklist
+
+Checked by `tests/simulated_cvat.py` (simulated CVAT, 2026-11-25):
+
+- [x] Start/End define an inclusive range; deleted frames are skipped when adding.
+- [x] No duplicate tags; frames outside the range and non-tag annotations do not change.
+- [x] No page reload, no extension request during Edit or Clear All; the view refreshes.
+- [x] CVAT's save afterwards sends only the changed tags (one delete and one create request).
+- [x] Start/End reset after success; a change between preview and Apply is caught.
+- [x] Editing several ranges one after another works.
+- [x] Complete & Next: user from state, save through CVAT, 503 retried after `Retry-After`, next job found with one filtered `page_size=1` request.
+
+Still to check on a real job:
+
+- [ ] Keyboard shortcuts still work.
+- [ ] Several operations in one dialog (not built yet).
+- [ ] Tags show at once in the real tag sidebar, and autosave/Save uploads them.
+- [ ] Annotations are still correct after the job is reopened manually.
+- [ ] The update check and the desktop updater still work.
+
+## Testing
+
+- Syntax: `node --check` on every `.js` file. PowerShell: `[System.Management.Automation.Language.Parser]::ParseFile(...)`.
+- Regression: `python tests/simulated_cvat.py`. It loads the extension unpacked into Playwright's Chromium, serves `tests/fake-cvat.html` at the CVAT URL, fakes the API, and counts every request. Also check dialogs at 390 px and 1366 px widths.
+- Live: use an authorized test job only, never production annotations.
+- Updater: set `CVAT_HOTKEYS_UPDATER_HOME` to a temporary folder. This isolates config, logs, backups and the task name (`… (test)`). Dot-source the script to call `Test-ReleaseArchive`, `Get-PermissionSet` and the other functions directly. To test Chrome activation, load the extension through CDP `Extensions.loadUnpacked` with Developer mode on. Extensions loaded with `--load-extension` are disabled by `chrome.runtime.reload()`, so they cannot test this path.
+
+## Release
+
+1. Run the syntax and regression checks.
+2. Bump `version` in `manifest.json`. Update the README if behaviour changed.
+3. Commit, push `main`, then push the tag `vX.Y.Z`.
+4. Watch the workflow with `gh run watch`. Then check the release with `gh release view vX.Y.Z`: both the `.zip` and the `.zip.sha256` must be present.
+5. Download the ZIP and confirm its contents. On a test machine, run `Setup-Updater.cmd check`.
+
+Use only this release process. Do not create another repository or distribution channel.

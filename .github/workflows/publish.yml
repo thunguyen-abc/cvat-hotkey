@@ -20,18 +20,24 @@ jobs:
           version=$(python -c 'import json; print(json.load(open("manifest.json"))["version"])')
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           [[ "$GITHUB_REF_NAME" == "v$version" ]]
-          for script in hotkeys.js range-editor.js complete-next.js update.js updates.js; do
+          for script in range-plan.js cvat-bridge.js bridge-client.js hotkeys.js range-editor.js complete-next.js update.js updates.js; do
             node --check "$script"
           done
+          pwsh -NoProfile -Command '$errors = $null; [System.Management.Automation.Language.Parser]::ParseFile("updater/cvat-hotkey-updater.ps1", [ref]$null, [ref]$errors) | Out-Null; if ($errors) { $errors | ForEach-Object { Write-Error $_.ToString() }; exit 1 }'
+          # Windows PowerShell 5.1 reads BOM-less scripts as ANSI, which garbles the Vietnamese text.
+          [[ "$(head -c 3 updater/cvat-hotkey-updater.ps1 | od -An -tx1 | tr -d ' ')" == "efbbbf" ]]
           archive="cvat-event-hotkeys-v$version.zip"
-          python -m zipfile -c "$archive" manifest.json hotkeys.js range-editor.js complete-next.js complete-next.css updates.js update.html update.js README.md
+          python -m zipfile -c "$archive" manifest.json range-plan.js cvat-bridge.js bridge-client.js hotkeys.js range-editor.js complete-next.js complete-next.css updates.js update.html update.js README.md updater
           python -m zipfile -t "$archive"
+          python -m zipfile -l "$archive"
+          # The desktop updater refuses a release without a SHA-256 to compare against.
+          sha256sum "$archive" > "$archive.sha256"
       - name: Publish GitHub release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh release create "$GITHUB_REF_NAME" "cvat-event-hotkeys-$GITHUB_REF_NAME.zip" \
+          gh release create "$GITHUB_REF_NAME" "cvat-event-hotkeys-$GITHUB_REF_NAME.zip" "cvat-event-hotkeys-$GITHUB_REF_NAME.zip.sha256" \
             --repo "$GITHUB_REPOSITORY" --verify-tag --latest \
             --title "CVAT Event Hotkeys $GITHUB_REF_NAME" --generate-notes
