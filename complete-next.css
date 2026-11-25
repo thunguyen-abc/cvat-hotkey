@@ -39,3 +39,39 @@
   color: #262626;
   font-size: 12px;
 }
+.cvat-range-buttons {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 8;
+  display: flex;
+  gap: 3px;
+  padding: 2px;
+  border-radius: 4px;
+  background: white;
+  box-shadow: 0 1px 4px #0002;
+  white-space: nowrap;
+}
+.cvat-range-buttons button { font-size: 12px; padding-inline: 6px; }
+.cvat-range-band {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 6px;
+  min-width: 3px;
+  z-index: 1;
+  pointer-events: none;
+  border-inline: 2px solid #065f46;
+  background: #34d399;
+  border-radius: 2px;
+}
+.cvat-player-slider .ant-slider-handle { z-index: 2; }
+.cvat-range-dialog { max-height: 80vh; overflow: auto; }
+.cvat-range-dialog label { display: grid; gap: 4px; margin: 10px 0; }
+.cvat-range-dialog [hidden] { display: none; }
+.cvat-range-dialog select { padding: 6px; max-width: 100%; }
+.cvat-range-dialog fieldset { border: 0; padding: 0; margin: 10px 0; }
+.cvat-range-dialog legend { font-size: 14px; }
+.cvat-range-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.cvat-range-chips button[aria-pressed="false"] { background: #f2f3f5; color: #475569; }
+.cvat-range-chips button[aria-pressed="true"] { background: #146c43; border-color: #146c43; color: white; }

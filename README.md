@@ -10,6 +10,17 @@ Extension Chrome dành cho `cvat-tai.abcstudio.online`. Khi mở hoặc tải l�
 
 Bấm một lần để gắn tag vào frame hiện tại. Bấm lại để gỡ. Lưu annotation bằng **Save** của CVAT.
 
+## Chỉnh tag theo khoảng frame
+
+Chọn frame đầu rồi bấm **Start**, chọn frame cuối rồi bấm **End**. Thanh tiến độ tô xanh khoảng đã chọn, bao gồm cả hai đầu. Bấm **Edit** để lưu các chỉnh sửa đang có và xem danh sách tag mới nhất. Hộp thoại hiển thị số lượng thay đổi trước khi bấm **Áp dụng**.
+
+- **Thêm tag** chỉ thêm vào các frame hợp lệ còn thiếu tag đích. Frame đã có tag đích được bỏ qua. Các tag khác trên cùng frame được giữ lại.
+- **Đổi tag** cho phép chọn một tag nguồn và một tag đích. Nếu frame đã có cả hai, extension giữ tag đích và gỡ tag nguồn.
+- **Xóa tag đã chọn** cho phép chọn nhiều nhãn. Ban đầu các nút đều xám. Bấm để chọn hoặc bỏ chọn.
+- **Xóa toàn bộ tag trong khoảng** áp dụng cho tất cả các nhãn tag trong hai mốc.
+
+Khi áp dụng, extension lưu các chỉnh sửa đang có, kiểm tra dữ liệu mới nhất, cập nhật tag và tải lại frame hiện tại.
+
 ## Hoàn tất rồi mở job tiếp theo
 
 Bấm **Complete & Next** cạnh **Menu**. Extension tự bấm **Continue** trong hộp xác nhận hoàn tất của CVAT. CVAT lưu annotation và chuyển job hiện tại sang **Completed**. Extension mở job chưa hoàn tất có ID lớn hơn gần nhất được giao cho bạn trong cùng task. Nếu chỉ còn job có ID nhỏ hơn, extension quay về job chưa hoàn tất đầu tiên của bạn. Khi không còn job nào phù hợp, extension mở trang task.

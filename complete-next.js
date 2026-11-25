@@ -275,7 +275,15 @@
       controls.wrapper.remove();
       controls = null;
     }
-    if (!job || !menu || controls) return;
+    if (!job || !menu) return;
+    if (controls) {
+      const slider = document.querySelector('.cvat-player-slider');
+      const anchor = document.querySelector('.cvat-player-frame-selector')?.parentElement;
+      if (slider && anchor && !anchor.querySelector('.cvat-range-buttons')) {
+        attachCVATRangeEditor(controls, slider, anchor, { getJSON, readTags, saveCurrentAnnotations });
+      }
+      return;
+    }
 
     const wrapper = document.createElement('span');
     wrapper.className = 'cvat-event-complete-next';
