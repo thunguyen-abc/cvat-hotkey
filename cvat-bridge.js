@@ -135,8 +135,9 @@
     };
   }
 
-  // statesOf(frame) returns the frame's tag ObjectStates (already read for the range).
-  async function applyPlan(job, plan, target, statesOf) {
+  // plan.create: [{ frame, label }] with CVAT Label objects. statesOf(frame) returns the
+  // frame's tag ObjectStates (already read for the range).
+  async function applyPlan(job, plan, statesOf) {
     const tagType = plugin.core.enums.ObjectType.TAG;
     const byFrame = new Map();
     for (const { clientID, frame } of plan.delete) {
@@ -153,8 +154,9 @@
       if (visited % 100 === 0) await yieldToBrowser();
     }
     if (plan.create.length) {
-      const states = plan.create.map((frame) => new plugin.core.classes.ObjectState({
-        objectType: tagType, label: target, frame,
+      // One put: one Undo step for all new tags.
+      const states = plan.create.map(({ frame, label }) => new plugin.core.classes.ObjectState({
+        objectType: tagType, label, frame,
       }));
       await job.annotations.put(states);
     }
@@ -207,10 +209,11 @@
       return snapshotOf(job, await readRange(job, integer(low, 'low'), integer(high, 'high')));
     },
 
-    // The content script plans the change from the snapshot (range-plan.js) and sends the
-    // concrete plan with the snapshot key. The range is re-read live and everything is
-    // re-checked before anything changes.
-    async applyRange({ jobId, low, high, key, create, remove, targetId }) {
+    // The content script plans all operations from the snapshot (range-plan.js) and sends
+    // the final difference: tags to remove (clientIDs) and tags to create ({ frame, labelId }),
+    // with the snapshot key. The range is re-read live and the whole plan is re-checked
+    // before anything changes; then it is applied in one go.
+    async applyRange({ jobId, low, high, key, create, remove }) {
       const { state, job } = context(jobId);
       assertIdle(state);
       integer(low, 'low');
@@ -220,26 +223,56 @@
       if (snapshot.key !== key) return { stale: true, snapshot };
       if (!Array.isArray(create) || !Array.isArray(remove)) fail('Kế hoạch không hợp lệ.');
       const current = new Map(live.tags.map((tag) => [tag.clientID, tag]));
+      if (new Set(remove).size !== remove.length) fail('Kế hoạch xóa tag bị trùng.');
       const deleting = remove.map((clientID) => current.get(clientID) ?? fail('Tag cần xóa không còn trong khoảng.'));
-      const target = create.length ? job.labels.find((label) => label.id === targetId) ?? fail('Không tìm thấy tag đích.') : null;
-      const keeps = new Set(live.tags.filter((tag) => tag.labelId === targetId && !remove.includes(tag.clientID))
-        .map((tag) => tag.frame));
-      for (const frame of create) {
-        if (!Number.isInteger(frame) || frame < low || frame > high || keeps.has(frame)) fail('Kế hoạch tạo tag không hợp lệ.');
-        keeps.add(frame);
-      }
+      const removing = new Set(remove);
+      const labels = new Map(job.labels.filter((label) => ['any', 'tag'].includes(label.type)).map((label) => [label.id, label]));
+      // (frame, label) pairs that will exist: kept tags plus planned ones. No duplicates allowed.
+      const pairs = new Set(live.tags.filter((tag) => !removing.has(tag.clientID)).map((tag) => tag.frame + '/' + tag.labelId));
+      const creating = create.map((item) => {
+        const label = labels.get(item?.labelId) ?? fail('Không tìm thấy tag đích trong job.');
+        const pair = item.frame + '/' + item.labelId;
+        if (!Number.isInteger(item.frame) || item.frame < low || item.frame > high || pairs.has(pair)) {
+          fail('Kế hoạch tạo tag không hợp lệ.');
+        }
+        pairs.add(pair);
+        return { frame: item.frame, label };
+      });
       const before = cache.frames;
-      const result = await applyPlan(job, { delete: deleting, create }, target, async (frame) => live.states.get(frame) ?? []);
+      const result = await applyPlan(job, { delete: deleting, create: creating }, async (frame) => live.states.get(frame) ?? []);
       await refresh(job);
       // Our own change moved the history key. Keep the untouched frames of the range and
       // re-read only the frames that changed.
-      const touched = new Set([...deleting.map((tag) => tag.frame), ...create]);
+      const touched = new Set([...deleting.map((tag) => tag.frame), ...creating.map((item) => item.frame)]);
       const frames = frameCache(job);
       for (const [frame, entry] of before) {
         if (frame >= low && frame <= high && !touched.has(frame)) frames.set(frame, entry);
       }
       for (const frame of touched) frames.set(frame, (await readFrame(job, frame)).entry);
       return { ...result, save: saveInfo(job) };
+    },
+
+    // Complete & Next step 1: is CVAT saving, and is anything left unsaved?
+    async saveStatus({ jobId }) {
+      const { state, job } = context(jobId);
+      return {
+        saving: Boolean(state.annotation.annotations.saving?.uploading),
+        unsaved: Boolean(job.annotations.hasUnsavedChanges()),
+        state: job.state,
+      };
+    },
+
+    // Complete & Next step 2: set the job to completed the way CVAT's "Finish the job" does
+    // after saving (updateJobAsync, exposed to plugins). CVAT 2.56 shows no success message
+    // for this, so the caller checks the returned state and then the server.
+    async completeJob({ jobId }) {
+      const { state, job } = context(jobId);
+      assertIdle(state);
+      if (job.annotations.hasUnsavedChanges()) fail('Còn thay đổi chưa lưu. Lưu trước khi hoàn tất.');
+      if (job.state !== 'completed') {
+        await plugin.dispatch(plugin.actionCreators.updateJobAsync(job, { state: 'completed' }));
+      }
+      return { state: job.state };
     },
 
     // Called after Complete & Next: the job is done, drop what was kept for it.
@@ -260,7 +293,7 @@
       const tags = await readAllTags(job);
       if (tags.length !== expected) return { stale: true, count: tags.length };
       const tagType = plugin.core.enums.ObjectType.TAG;
-      const result = await applyPlan(job, { delete: tags, create: [] }, null,
+      const result = await applyPlan(job, { delete: tags, create: [] },
         async (frame) => (await job.annotations.get(frame, false, [])).filter((item) => item.objectType === tagType));
       await refresh(job);
       cache = null;

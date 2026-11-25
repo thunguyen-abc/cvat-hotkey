@@ -12,7 +12,9 @@ Bấm một lần để gắn tag vào frame hiện tại. Bấm lại để g�
 
 ## Chỉnh tag theo khoảng frame
 
-Chọn frame đầu rồi bấm **Start**, chọn frame cuối rồi bấm **End**. Thanh tiến độ tô xanh khoảng đã chọn, bao gồm cả hai đầu. Bấm **Edit** để xem các tag trong khoảng, gồm cả thay đổi chưa lưu. Hộp thoại hiển thị số tag sẽ thêm, đổi và xóa trước khi bấm **Áp dụng**.
+Chọn frame đầu rồi bấm **Start**, chọn frame cuối rồi bấm **End**. Thanh tiến độ tô xanh khoảng đã chọn, bao gồm cả hai đầu. Bấm **Edit** để xem các tag trong khoảng, gồm cả thay đổi chưa lưu.
+
+Một lần Edit có thể gồm **nhiều thao tác**: bấm **+ Thêm thao tác** để thêm thẻ mới, ví dụ xóa `event_drinking`, đổi `event_smoke` thành `event_phone`, rồi thêm `event_drinking`. Các thao tác chạy theo thứ tự từ trên xuống, mỗi thao tác dùng kết quả của các thao tác phía trên. Danh sách tag ở mỗi thẻ là tag còn lại sau các thẻ phía trên. Nếu một thẻ không hợp lệ, ví dụ đổi một tag đã bị thẻ trên xóa, thẻ đó được tô đỏ kèm lý do và nút **Áp dụng** bị khóa: extension không tự đoán. Hộp thoại hiển thị tổng số tag sẽ thêm, đổi và xóa. Bấm **Áp dụng** một lần để áp dụng tất cả; xóa rồi thêm lại cùng một tag không tính là thay đổi.
 
 - **Thêm tag** chỉ thêm vào các frame hợp lệ còn thiếu tag đích. Frame đã có tag đích được bỏ qua. Các tag khác trên cùng frame được giữ lại.
 - **Đổi tag** cho phép chọn một tag nguồn và một tag đích. Nếu frame đã có cả hai, extension giữ tag đích và gỡ tag nguồn.
@@ -27,7 +29,13 @@ Thay đổi được lưu lên server ở lần lưu tiếp theo của CVAT: the
 
 ## Hoàn tất rồi mở job tiếp theo
 
-Bấm **Complete & Next** cạnh **Menu**. Extension tự bấm **Continue** trong hộp xác nhận hoàn tất của CVAT. CVAT lưu các thay đổi chưa lưu và chuyển job hiện tại sang **Completed**. Extension mở job chưa hoàn tất (New, In progress, Rejected) có ID lớn hơn gần nhất được giao cho bạn trong cùng task. Nếu chỉ còn job có ID nhỏ hơn, extension quay về job chưa hoàn tất có ID nhỏ nhất của bạn. Khi không còn job nào phù hợp, extension mở trang task. Server tự lọc theo task, người được giao, trạng thái và ID, nên extension chỉ hỏi đúng một job mỗi lần, không tải danh sách job của task.
+Bấm **Complete & Next** cạnh **Menu**. Extension làm lần lượt, bước sau chỉ bắt đầu khi bước trước đã xong:
+
+1. **Save:** nếu còn thay đổi chưa lưu, bấm **Save** của CVAT và đợi CVAT lưu xong. Không có gì để lưu thì bỏ qua.
+2. **Completed:** chuyển job sang **Completed** giống lệnh Finish the job của CVAT, rồi hỏi lại server để chắc chắn.
+3. **Next:** mở job tiếp theo.
+
+ Extension mở job chưa hoàn tất (New, In progress, Rejected) có ID lớn hơn gần nhất được giao cho bạn trong cùng task. Nếu chỉ còn job có ID nhỏ hơn, extension quay về job chưa hoàn tất có ID nhỏ nhất của bạn. Khi không còn job nào phù hợp, extension mở trang task. Server tự lọc theo task, người được giao, trạng thái và ID, nên thường extension chỉ hỏi đúng một job mỗi lần. Nếu bộ lọc không tìm thấy job nào, extension đọc danh sách job của task như các bản trước để chắc chắn không bỏ sót.
 
 Nút yêu cầu job hiện tại được giao cho tài khoản đang đăng nhập. Nếu CVAT báo lỗi hoặc chưa xác nhận hoàn tất, bạn vẫn ở job hiện tại.
 

@@ -23,6 +23,7 @@ jobs:
           for script in range-plan.js cvat-bridge.js bridge-client.js hotkeys.js range-editor.js complete-next.js update.js updates.js; do
             node --check "$script"
           done
+          node tests/range_plan_test.js
           pwsh -NoProfile -Command '$errors = $null; [System.Management.Automation.Language.Parser]::ParseFile("updater/cvat-hotkey-updater.ps1", [ref]$null, [ref]$errors) | Out-Null; if ($errors) { $errors | ForEach-Object { Write-Error $_.ToString() }; exit 1 }'
           # Windows PowerShell 5.1 reads BOM-less scripts as ANSI, which garbles the Vietnamese text.
           [[ "$(head -c 3 updater/cvat-hotkey-updater.ps1 | od -An -tx1 | tr -d ' ')" == "efbbbf" ]]

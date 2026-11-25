@@ -83,6 +83,20 @@ Verified on 2026-11-25 on Windows 10 with PowerShell 5.1 and Chromium 1248:
 - The scheduled task registers as a standard (non-admin) user.
 - An extension loaded as unpacked switches to the new version after a disk change: at once when the popup opens, and within 80 s from the alarm alone. Chrome keeps it enabled only while Developer mode is on.
 
+## Range editor: several operations
+
+Since v1.6.3 the dialog holds a list of operation cards (UI ported from the unpublished 1.6.0 draft). `range-plan.js` `planCVATRangeBatch` projects the operations top to bottom on the snapshot of the range. Each card sees the tags left by the cards above it. A card without a target, without a selected source, with a source that no longer exists, or with source = target gets a `problem` and blocks Apply. The final state is diffed against the original: unchanged `(frame, label)` pairs are kept, relabels count as "Đổi", and the result is `{ create: [{ frame, labelId }], delete: [{ clientID, frame }] }`. The bridge re-reads the range, refuses a changed fingerprint, checks that every delete exists and that no `(frame, label)` pair would be duplicated, then deletes and creates (one `put`). Unit tests: `node tests/range_plan_test.js`, also run by the release workflow.
+
+## Complete & Next
+
+Save → Completed → next job, each step confirmed. CVAT 2.56's "Finish the job" (`finishCurrentJobAsync`) saves, then calls `updateJobAsync(job, { state: 'completed' })`, and shows the `cvat-annotation-job-finished-success` message **only when the job was already completed**. Earlier versions waited for that message, so they timed out and never moved on. v1.6.3 does the steps itself:
+
+1. Bridge `saveStatus`. If unsaved, click CVAT's Save and wait until `saving` is false and nothing is unsaved; a new "Could not save" notice aborts.
+2. Bridge `completeJob` dispatches `actionCreators.updateJobAsync`, then one GET confirms `completed` on the server.
+3. Clear the job's cache and Start/End, then find the next job with the server filter. If the filter errors or finds nothing, scan the task's job list (100 per page, at most 20 pages).
+
+Without the bridge, the menu's Finish is used and completion is detected by polling the job state (at most every 2 s, through the rate-limited queue).
+
 ## Range editor: status and remaining work
 
 Done after v1.5.1, in the change that added the bridge:
@@ -94,7 +108,7 @@ Done after v1.5.1, in the change that added the bridge:
 
 Still open, from the original handover:
 
-1. **Several operations in one dialog.** Today the dialog applies one operation (add, replace, remove selected or remove all) per Apply. Several Applies before one save already cost no extra requests, but the handover asks for an operation list in one dialog. Compute the final tag set for each frame from the whole list, in the order the user added the operations, show that order in the preview, and never resolve an ambiguous conflict silently. `range-plan.js` is the place for it. The bridge already accepts any concrete plan of creates and deletes and validates it.
+1. ~~**Several operations in one dialog.**~~ Done in v1.6.3 (see below). Original text: the dialog applied one operation (add, replace, remove selected or remove all) per Apply. Several Applies before one save already cost no extra requests, but the handover asks for an operation list in one dialog. Compute the final tag set for each frame from the whole list, in the order the user added the operations, show that order in the preview, and never resolve an ambiguous conflict silently. `range-plan.js` is the place for it. The bridge already accepts any concrete plan of creates and deletes and validates it.
 2. **Live verification** on an authorized test job (see the checklist).
 
 The local `outputs/cvat-event-hotkeys/` and `work/` folders from the previous session were never committed. Their batch-operation draft is superseded by the bridge design.
@@ -116,12 +130,12 @@ Checked by `tests/simulated_cvat.py` (simulated CVAT, 2026-11-25):
 - [x] CVAT's save afterwards sends only the changed tags (one delete and one create request).
 - [x] Start/End kept after Apply and Save, cleared after Complete & Next; a change between preview and Apply is caught.
 - [x] Editing several ranges one after another works.
-- [x] Complete & Next: user from state, save through CVAT, 503 retried after `Retry-After`, next job found with one filtered `page_size=1` request.
+- [x] Complete & Next: save -> completed -> next in order, nothing-to-save skips the save, filter miss falls back to the page scan, user from state, 503 retried after `Retry-After`, next job found with one filtered `page_size=1` request.
 
 Still to check on a real job:
 
 - [ ] Keyboard shortcuts still work.
-- [ ] Several operations in one dialog (not built yet).
+- [ ] Several operations in one dialog (built in v1.6.3, covered by simulation; check on a real job).
 - [ ] Tags show at once in the real tag sidebar, and autosave/Save uploads them.
 - [ ] Annotations are still correct after the job is reopened manually.
 - [ ] The update check and the desktop updater still work.

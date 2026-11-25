@@ -86,6 +86,10 @@ class FakeServer:
                 return reply({'detail': 'busy'}, 503, {'Retry-After': '1'})
             return reply({'id': job_id, 'task_id': 12, 'state': self.job_state.get(job_id), 'assignee': {'id': 5},
                           'organization': None})
+        if path == '/api/jobs' and 'filter' not in query:
+            entry['scan'] = True
+            jobs = [{'id': i, 'task_id': 12, 'assignee': {'id': 5}, 'state': self.job_state[i]} for i in sorted(self.job_state)]
+            return reply({'count': len(jobs), 'next': None, 'results': jobs})
         if path == '/api/jobs':
             rules = json.loads(query['filter'][0])['and']
             entry['filter'] = rules
@@ -161,11 +165,12 @@ def main():
                 dialog = page.locator('dialog.cvat-range-dialog')
                 dialog.locator('select').first.wait_for()
                 page.wait_for_function('!document.querySelector("dialog.cvat-range-dialog select").disabled')
-                dialog.locator('select').first.select_option(mode)
+                card = dialog.locator('.cvat-operation-card').first
+                card.locator('select').first.select_option(mode)
                 for label in sources:
-                    dialog.locator(f'.cvat-range-chips button[data-label-id="{label}"]').click()
+                    card.locator(f'.cvat-range-chips button[data-label-id="{label}"]').click()
                 if target is not None:
-                    dialog.locator('select').nth(1).select_option(str(target))
+                    card.locator('select').nth(1).select_option(str(target))
                 preview = dialog.locator('p[role="status"]').inner_text()
                 if expect_preview:
                     check(expect_preview in preview, f'preview "{preview}" contains "{expect_preview}"')
@@ -222,6 +227,71 @@ def main():
             check(all(after[str(f)] == [] for f in range(90, 100)), 'all: no tags left in 90-99')
             assert_range_edit('all', 90, 99, before, after)
 
+            print('Several operations in one dialog')
+            def expected_after(before, low, high, ops, valid):
+                result = {}
+                for f in range(100):
+                    tags = list(before[str(f)])
+                    if low <= f <= high:
+                        for op in ops:
+                            if op[0] == 'remove':
+                                tags = [t for t in tags if t not in op[1]]
+                            elif op[0] == 'replace':
+                                src, dst = op[1][0], op[2]
+                                if src in tags:
+                                    tags = [t for t in tags if t != src]
+                                    if dst not in tags:
+                                        tags.append(dst)
+                            elif op[0] == 'add' and f in valid and op[2] not in tags:
+                                tags.append(op[2])
+                    result[str(f)] = sorted(tags)
+                return result
+            before = tags_by_frame()
+            sim('takeReads()')
+            sim('setFrame(50)'); start.click()
+            sim('setFrame(70)'); end.click()
+            edit.click()
+            dialog = page.locator('dialog.cvat-range-dialog')
+            dialog.locator('.cvat-operation-card select').first.wait_for()
+            ops = [('remove', [2], None), ('replace', [1], 3), ('add', [], 2)]
+            for index, (mode, sources, target) in enumerate(ops):
+                if index:
+                    dialog.locator('button', has_text='+ Thêm thao tác').click()
+                card = dialog.locator('.cvat-operation-card').nth(index)
+                card.locator('select').first.select_option(mode)
+                for label in sources:
+                    card.locator(f'.cvat-range-chips button[data-label-id="{label}"]').click()
+                if target is not None:
+                    card.locator('select').nth(1).select_option(str(target))
+            check(dialog.locator('.cvat-operation-card').count() == 3, 'three operation cards in one dialog')
+            preview = dialog.locator('p[role="status"]').inner_text()
+            dialog.locator('button', has_text='Áp dụng').click()
+            page.wait_for_selector('dialog.cvat-range-dialog', state='detached')
+            after = tags_by_frame()
+            want = expected_after(before, 50, 70, ops, set(range(100)) - {12, 13})
+            check(after == want, f'remove + replace + add applied together, matching an independent model ({preview})')
+            check(all(len(set(v)) == len(v) for v in after.values()), 'batch: no duplicate tags')
+            check(start.inner_text() == 'Start 50' and end.inner_text() == 'End 70', 'batch: Start/End kept')
+            check(page.evaluate('window.__sim.state.annotation.canvas.ready'), 'batch: canvas still ready')
+
+            print('Conflicting operations are blocked, not resolved silently')
+            edit.click()
+            dialog.locator('.cvat-operation-card select').first.wait_for()
+            card = dialog.locator('.cvat-operation-card').first
+            card.locator('select').first.select_option('remove')
+            card.locator('.cvat-range-chips button[data-label-id="3"]').click()
+            dialog.locator('button', has_text='+ Thêm thao tác').click()
+            second = dialog.locator('.cvat-operation-card').nth(1)
+            second.locator('select').first.select_option('replace')
+            check(second.locator('.cvat-range-chips button[data-label-id="3"]').count() == 0,
+                  'card 2 offers only tags that still exist after card 1')
+            second.locator('select').nth(1).select_option('1')
+            problem = second.locator('.cvat-operation-problem').inner_text()
+            check(bool(problem) and dialog.locator('button', has_text='Áp dụng').is_disabled(),
+                  f'incomplete card blocks Apply with a reason ({problem})')
+            dialog.locator('button', has_text='Hủy').click()
+            page.wait_for_selector('dialog.cvat-range-dialog', state='detached')
+
             check(server.since(mark) == [], f'range editor made {len(server.since(mark))} server requests')
             check(page.evaluate('sessionStorage.getItem("loads")') == '1', 'no page reload')
             check(page.evaluate('window.__sim.refreshes') >= 4, 'CVAT view refreshed after each Apply')
@@ -232,7 +302,7 @@ def main():
             page.wait_for_function('document.querySelector("dialog.cvat-range-dialog select") && '
                                    '!document.querySelector("dialog.cvat-range-dialog select").disabled')
             summary = page.locator('dialog.cvat-range-dialog .cvat-range-summary').inner_text()
-            check('90' in summary and '99' in summary, f'Edit reopens on the kept range without re-marking ({summary})')
+            check('50' in summary and '70' in summary, f'Edit reopens on the last marked range without re-marking ({summary})')
             check(sim('takeReads()') == [], 'reopening reads nothing: changed frames were re-cached after Apply')
             page.locator('dialog.cvat-range-dialog button', has_text='Hủy').click()
             page.wait_for_selector('dialog.cvat-range-dialog', state='detached')
@@ -301,7 +371,11 @@ def main():
             paths = [(e['method'], e['path']) for e in calls]
             check(('GET', '/api/users/self') not in paths, 'user read from CVAT state, not requested')
             check(page.evaluate('sessionStorage.getItem("cvat-event-range:77")') is None, 'Start/End of the completed job cleared')
-            check([e['action'] for e in calls if 'action' in e] == ['delete'], 'Finish saved only the cleared tags, one request')
+            check([e['action'] for e in calls if 'action' in e] == ['delete'], 'saved only the cleared tags, one request')
+            order = [i for i, e in enumerate(calls) if e.get('action') == 'delete'] + \
+                    [i for i, e in enumerate(calls) if e['method'] == 'PATCH' and e['path'] == '/api/jobs/77']
+            check(len(order) == 2 and order[0] < order[1], 'order: save first, then set Completed')
+            check(server.job_state[77] == 'completed', 'job 77 completed on the server')
             job_gets = [e for e in calls if (e['method'], e['path']) == ('GET', '/api/jobs/77')]
             check(len(job_gets) == 2 and job_gets[0].get('status') == 503, '503 retried once')
             check(job_gets[1]['t'] - job_gets[0]['t'] >= 0.95, f"retry waited Retry-After ({job_gets[1]['t'] - job_gets[0]['t']:.2f}s)")
@@ -312,6 +386,26 @@ def main():
             gets = [e for e in calls if e['method'] == 'GET']
             gaps = [b['t'] - a['t'] for a, b in zip(gets, gets[1:])]
             check(all(g >= 0.24 for g in gaps), 'extension GETs spaced ≥ 250 ms')
+
+            print('Complete & Next with nothing to save, wrapping to an earlier job')
+            page.wait_for_selector('.cvat-range-buttons button')
+            page.wait_for_function('window.cvatUI !== undefined')
+            mark = server.mark()
+            page.get_by_role('button', name='Complete & Next').click()
+            page.wait_for_url('**/tasks/12/jobs/60', timeout=30000)
+            calls = server.since(mark)
+            check(not any('action' in e for e in calls), 'nothing unsaved: no annotation request')
+            check(server.job_state[80] == 'completed', 'job 80 completed on the server')
+
+            print('Complete & Next when the filter finds nothing: original page scan')
+            page.wait_for_selector('.cvat-range-buttons button')
+            page.wait_for_function('window.cvatUI !== undefined')
+            mark = server.mark()
+            page.get_by_role('button', name='Complete & Next').click()
+            page.wait_for_url('**/tasks/12', timeout=30000)
+            calls = server.since(mark)
+            check(any(e.get('scan') for e in calls), 'no open job via filter: task job list scanned before giving up')
+            check(server.job_state[60] == 'completed', 'job 60 completed, task page opened')
             browser.close()
     finally:
         proc.kill()

@@ -4,7 +4,7 @@
   // cvatEventBridge, cvatEventRequests and describeCVATSave come from bridge-client.js.
   const menuSelector = 'button.cvat-annotation-header-menu-button';
   const modalSelector = '.cvat-modal-content-finish-job';
-  const successSelector = '.cvat-annotation-job-finished-success';
+  const saveSelector = 'button.cvat-annotation-header-save-button';
   const openStates = ['new', 'in progress', 'rejected'];
   const legacyPageLimit = 20;
   let controls;
@@ -16,6 +16,7 @@
   }
 
   const getJSON = (path, signal) => cvatEventRequests.getJSON(path, signal);
+  const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   function organizationQuery(query, organization) {
     if (Number.isInteger(organization)) query.set('org_id', organization);
@@ -27,8 +28,10 @@
       openStates.includes(job.state);
   }
 
-  // Asks the server for exactly one job: the next open job of this user in this task with a
-  // larger ID, or else the smallest one. At most two small requests (page_size=1).
+  // Next open job (New, In progress, Rejected) of this user in this task: the smallest ID
+  // above the current one, else the smallest ID below it. The server filters, so normally
+  // this costs one or two page_size=1 requests. If the filter fails or finds nothing, the
+  // task's job list is scanned as in earlier versions, so no job is skipped.
   async function findNextJob({ taskId, jobId }, organization, user, signal) {
     const lookup = async (comparison) => {
       const filter = { and: [
@@ -44,16 +47,19 @@
       const job = data.results[0];
       return isCandidate(job, taskId, user) ? job.id : null;
     };
-    try {
-      return (await lookup('>')) ?? (await lookup('<'));
-    } catch (error) {
-      if (error.status !== 400 || typeof user.username !== 'string') throw error;
-      return findNextJobByPages({ taskId, jobId }, organization, user, signal);
+    if (typeof user.username === 'string') {
+      try {
+        const found = (await lookup('>')) ?? (await lookup('<'));
+        if (found !== null) return found;
+      } catch (error) {
+        if (signal.aborted) throw error;
+      }
     }
+    return findNextJobByPages({ taskId, jobId }, organization, user, signal);
   }
 
-  // Fallback for servers without JSON filters: walk the task's jobs, 100 per page, through
-  // the rate-limited queue, and stop after legacyPageLimit pages.
+  // The original search: the task's jobs, 100 per page, through the rate-limited queue,
+  // stopping at the first match and after legacyPageLimit pages.
   async function findNextJobByPages({ taskId, jobId }, organization, user, signal) {
     const query = new URLSearchParams({ task_id: taskId, sort: 'id', page_size: '100' });
     organizationQuery(query, organization);
@@ -72,20 +78,49 @@
     return firstEarlierJob;
   }
 
-  async function waitFor(lookup, signal, timeout, errorMessage) {
+  async function waitFor(lookup, signal, timeout, errorMessage, interval = 75) {
     const deadline = Date.now() + timeout;
     while (Date.now() < deadline) {
       signal.throwIfAborted();
-      const value = lookup();
+      const value = await lookup();
       if (value) return value;
-      await new Promise((resolve) => setTimeout(resolve, 75));
+      await pause(interval);
     }
     throw new Error(errorMessage);
   }
 
-  // "Finish the job" in CVAT saves the changed annotations (only the changed objects, at
-  // most one request each for updated, deleted and created) and sets the job to completed.
-  async function finishThroughCVAT(menu, jobId, signal, status) {
+  const saveErrors = () => [...document.querySelectorAll('.ant-notification-notice')]
+    .filter((notice) => /could not save/i.test(notice.textContent));
+
+  // Step 1: save. Clicks CVAT's own Save (diff-only upload) when something is unsaved, then
+  // waits until CVAT has finished and nothing is left unsaved. Nothing to save: no request.
+  async function saveThroughCVAT(job, signal, status) {
+    const read = () => cvatEventBridge.call('saveStatus', { jobId: job.jobId });
+    let current = await read();
+    if (current.saving) {
+      status.textContent = 'Đợi CVAT lưu xong…';
+      current = await waitFor(async () => { const s = await read(); return s.saving ? null : s; },
+        signal, 120000, 'CVAT chưa lưu xong. Thử lại sau.', 300);
+    }
+    if (!current.unsaved) return;
+    const save = document.querySelector(saveSelector);
+    if (!save || save.disabled) throw new Error('Không tìm thấy nút Save của CVAT.');
+    const previousErrors = new Set(saveErrors());
+    status.textContent = 'Đang lưu thay đổi…';
+    save.click();
+    await waitFor(async () => {
+      const s = await read();
+      if (!s.saving && !s.unsaved) return true;
+      if (!s.saving && saveErrors().some((notice) => !previousErrors.has(notice))) {
+        throw new Error('CVAT báo lỗi khi lưu. Job chưa được hoàn tất.');
+      }
+      return false;
+    }, signal, 120000, 'CVAT chưa lưu xong. Job chưa được hoàn tất.', 300);
+  }
+
+  // Fallback without the bridge: CVAT's "Finish the job" (it saves, then sets completed).
+  // CVAT 2.56 shows no success message when it completes a job, so the server is asked.
+  async function finishThroughMenu(menu, job, signal, status) {
     const visibleFinishItem = () => [...document.querySelectorAll('[role="menuitem"]')].find((item) =>
       item.getClientRects().length && item.getAttribute('aria-disabled') !== 'true' &&
       (item.getAttribute('data-menu-id')?.endsWith('-finish_job') ||
@@ -95,30 +130,29 @@
     }
     if (!visibleFinishItem()) menu.click();
     const finishItem = await waitFor(visibleFinishItem, signal, 2500, 'Không tìm thấy lệnh Finish the job.');
-    const oldMessages = new Set(document.querySelectorAll(successSelector));
     finishItem.click();
-
     const continueButton = await waitFor(() => {
       const candidate = document.querySelector(modalSelector);
       if (!candidate?.getClientRects().length) return null;
       const primary = candidate.querySelector('button.ant-btn-primary');
       return primary?.textContent.trim() === 'Continue' && !primary.disabled ? primary : null;
     }, signal, 2500, 'Không tìm thấy nút Continue trong hộp xác nhận hoàn tất của CVAT.');
-    signal.throwIfAborted();
-    if (readJobPath()?.jobId !== jobId) throw new Error('Job đã thay đổi trước khi xác nhận.');
+    if (readJobPath()?.jobId !== job.jobId) throw new Error('Job đã thay đổi trước khi xác nhận.');
     status.textContent = 'Đang chờ CVAT lưu và hoàn tất…';
     continueButton.click();
-    await waitFor(() => [...document.querySelectorAll(successSelector)].some((node) => !oldMessages.has(node)),
-      signal, 90000, 'Chưa thấy CVAT xác nhận hoàn tất. Kiểm tra trạng thái job trước khi thử lại.');
+    return waitFor(async () => {
+      const current = await getJSON(`/api/jobs/${job.jobId}`, signal);
+      return current.state === 'completed' ? current : null;
+    }, signal, 60000, 'Chưa thấy job chuyển sang Completed. Kiểm tra trạng thái job trước khi thử lại.', 2000);
   }
 
   // User and assignee come from CVAT's in-memory state. Two small GETs only if the bridge
   // is unavailable.
-  async function readSession(job, signal) {
-    if (await cvatEventBridge.ready()) {
+  async function readSession(job, signal, bridged) {
+    if (bridged) {
       const session = await cvatEventBridge.call('session');
       if (session.user && session.job.id === job.jobId) {
-        return { user: session.user, assigneeId: session.job.assigneeId, taskId: session.job.taskId, saving: session.saving };
+        return { user: session.user, assigneeId: session.job.assigneeId, taskId: session.job.taskId };
       }
     }
     const user = await getJSON('/api/users/self', signal);
@@ -127,6 +161,8 @@
     return { user: { id: user.id, username: user.username }, assigneeId: current.assignee?.id ?? null, taskId: current.task_id };
   }
 
+  // Save -> Completed -> next job. Each step is confirmed before the next one starts; on
+  // any error the user stays on the current job with the reason shown.
   async function completeAndAdvance(control) {
     const { job, menu, button, status, controller } = control;
     const { signal } = controller;
@@ -134,20 +170,28 @@
     status.textContent = 'Đang kiểm tra người được giao…';
 
     try {
-      const session = await readSession(job, signal);
-      if (session.saving) throw new Error('CVAT đang lưu. Đợi lưu xong rồi thử lại.');
+      const bridged = await cvatEventBridge.ready();
+      const session = await readSession(job, signal, bridged);
       if (!Number.isInteger(session.user?.id) || session.taskId !== job.taskId || session.assigneeId !== session.user.id) {
         throw new Error('Nút này chỉ hoàn tất job được giao cho tài khoản đang đăng nhập.');
       }
 
-      await finishThroughCVAT(menu, job.jobId, signal, status);
-      const saved = await getJSON(`/api/jobs/${job.jobId}`, signal);
-      if (saved.state !== 'completed') throw new Error('CVAT chưa chuyển job sang Completed.');
+      let saved;
+      if (bridged) {
+        await saveThroughCVAT(job, signal, status);
+        status.textContent = 'Đang chuyển job sang Completed…';
+        const result = await cvatEventBridge.call('completeJob', { jobId: job.jobId }, 60000);
+        if (result.state !== 'completed') throw new Error('CVAT chưa chuyển job sang Completed.');
+        saved = await getJSON(`/api/jobs/${job.jobId}`, signal);
+      } else {
+        saved = await finishThroughMenu(menu, job, signal, status);
+      }
+      if (saved.state !== 'completed') throw new Error('Server chưa ghi nhận job ở trạng thái Completed.');
       // The job is done: drop the extension's cached tags and the Start/End marks for it.
       try { sessionStorage.removeItem(`cvat-event-range:${job.jobId}`); } catch { /* Storage may be unavailable. */ }
       await cvatEventBridge.call('clearCache', {}, 3000).catch(() => {});
 
-      status.textContent = 'Đang tìm job tiếp theo của bạn…';
+      status.textContent = 'Đã hoàn tất. Đang tìm job tiếp theo của bạn…';
       const next = await findNextJob(job, saved.organization, session.user, signal);
       signal.throwIfAborted();
       if (readJobPath()?.jobId !== job.jobId) return;

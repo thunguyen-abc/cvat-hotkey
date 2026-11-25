@@ -155,7 +155,7 @@ dialog.cvat-event-clear-dialog {
 .cvat-range-chips button.ant-btn { white-space: normal; overflow-wrap: anywhere; background: #f4f6f8; color: #425260; }
 .cvat-range-chips button.ant-btn:disabled { opacity: 1; cursor: default; }
 .cvat-range-chips button[aria-pressed="true"] { border-color: #307e6b; color: #155845; background: #def2e9; }
-.cvat-range-dialog[data-operation="remove"] button[aria-pressed="true"] { border-color: #b45d68; color: #902334; background: #feedef; }
+.cvat-operation-card[data-operation="remove"] button[aria-pressed="true"] { border-color: #b45d68; color: #902334; background: #feedef; }
 .cvat-range-chips button[aria-pressed="true"]::before { content: "✓"; }
 .cvat-range-count { padding: 1px 5px; background: #24374612; border-radius: 4px; font-size: 12px; font-variant-numeric: tabular-nums; }
 .cvat-event-clear-dialog p[role="status"], .cvat-event-complete-status:not(:empty) {
@@ -175,4 +175,27 @@ dialog.cvat-event-clear-dialog {
 @media (max-width: 600px) {
   .cvat-range-buttons { position: fixed; inset: auto 8px 12px auto; }
   dialog.cvat-event-clear-dialog { padding: 16px; }
+}
+
+/* Several operations in one dialog (cards run top to bottom). */
+.cvat-range-dialog[open] { display: flex; flex-direction: column; gap: 10px; }
+.cvat-range-dialog > small { color: var(--muted); font-size: 13px; }
+.cvat-operation-list { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 3px; }
+.cvat-operation-card + .cvat-operation-card { margin-top: 8px; }
+.cvat-operation-card:has(summary:not([hidden])) { border: 1px solid var(--line); border-radius: 8px; }
+.cvat-operation-card[data-invalid="true"]:has(summary:not([hidden])) { border-color: #c9737d; }
+.cvat-operation-card summary { padding: 10px; cursor: pointer; overflow-wrap: anywhere; }
+.cvat-operation-card summary span:first-of-type { font-weight: 650; margin-right: 9px; }
+.cvat-operation-card summary span:last-of-type { color: var(--muted); }
+.cvat-operation-card:has(summary:not([hidden])) .cvat-operation-fields { padding: 0 12px 12px; }
+.cvat-range-dialog .cvat-operation-fields { margin: 0; }
+.cvat-operation-fields > label:first-child { margin-top: 4px; }
+.cvat-operation-problem { margin: 8px 0 0; color: #902334; font-size: 13px; }
+.cvat-range-dialog .cvat-add-operation { align-self: flex-start; color: var(--accent); border-style: dashed; }
+.cvat-batch-footer { border-top: 1px solid #dce3e8; padding-top: 10px; }
+.cvat-batch-footer p[role="status"] { margin: 0; }
+.cvat-batch-footer .cvat-event-clear-actions { margin-top: 10px; }
+@media (max-height: 500px) {
+  .cvat-range-dialog[open] { display: block; }
+  .cvat-operation-list { overflow: visible; }
 }

@@ -145,6 +145,12 @@
     return action;
   };
   const actionCreators = {
+    // Like CVAT: job.save(fields) on the server, then the instance carries the new state.
+    updateJobAsync: (instance, fields) => async () => {
+      const response = await fetch(`/api/jobs/${jobId}`, { method: 'PATCH', body: JSON.stringify(fields) });
+      if (!response.ok) throw new Error('update failed');
+      instance.state = (await response.json()).state;
+    },
     // Like CVAT 2.56: CHANGE_FRAME sets canvas.ready = false, and the canvas confirms
     // readiness only after a new image. On the same frame it never does.
     changeFrameAsync: (frame, fill, step, force) => async () => {
