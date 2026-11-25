@@ -19,7 +19,9 @@ Chọn frame đầu rồi bấm **Start**, chọn frame cuối rồi bấm **End
 - **Xóa tag đã chọn** cho phép chọn nhiều nhãn. Ban đầu các nút đều xám. Bấm để chọn hoặc bỏ chọn.
 - **Xóa toàn bộ tag trong khoảng** áp dụng cho tất cả các nhãn tag trong hai mốc.
 
-Extension sửa tag ngay trên trình duyệt, giống như khi bạn gắn tag bằng tay. Trang không tải lại và bạn vẫn ở frame hiện tại. Sau khi áp dụng, Start và End trở về trạng thái chưa chọn để bạn chọn khoảng khác. Nếu có lỗi, khoảng và lựa chọn được giữ lại để thử lại. Nếu tag trong khoảng vừa thay đổi sau khi mở hộp thoại, extension không áp dụng mà hiện số liệu mới để bạn kiểm tra lại.
+Extension sửa tag ngay trên trình duyệt, giống như khi bạn gắn tag bằng tay. Trang không tải lại và bạn vẫn ở frame hiện tại. Sau khi áp dụng, Start và End vẫn giữ nguyên và vẫn tô xanh, nên có thể bấm Edit lại ngay cho cùng khoảng. Muốn đổi khoảng thì bấm Start hoặc End ở frame khác. Start và End chỉ bị xóa sau Complete & Next. Nếu có lỗi, lựa chọn trong hộp thoại được giữ lại để thử lại. Nếu tag trong khoảng vừa thay đổi sau khi mở hộp thoại, extension không áp dụng mà hiện số liệu mới để bạn kiểm tra lại.
+
+Extension chỉ đọc các frame từ Start đến End, ngay trên trình duyệt, và nhớ lại kết quả theo từng frame. Mở Edit lần sau với khoảng chồng lên khoảng cũ chỉ phải đọc thêm các frame mới; chuyển frame không làm mất phần đã nhớ. Khi bạn gắn, gỡ tag hoặc Undo, phần đã nhớ được đọc lại. Sau khi Complete & Next, extension xóa phần đã nhớ cùng Start/End của job.
 
 Thay đổi được lưu lên server ở lần lưu tiếp theo của CVAT: theo **Auto save** trong Settings, khi bấm **Save** (Ctrl+S), hoặc khi bấm **Complete & Next**. Dòng trạng thái cạnh Complete & Next cho biết thay đổi đã lưu chưa.
 

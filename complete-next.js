@@ -143,6 +143,9 @@
       await finishThroughCVAT(menu, job.jobId, signal, status);
       const saved = await getJSON(`/api/jobs/${job.jobId}`, signal);
       if (saved.state !== 'completed') throw new Error('CVAT chưa chuyển job sang Completed.');
+      // The job is done: drop the extension's cached tags and the Start/End marks for it.
+      try { sessionStorage.removeItem(`cvat-event-range:${job.jobId}`); } catch { /* Storage may be unavailable. */ }
+      await cvatEventBridge.call('clearCache', {}, 3000).catch(() => {});
 
       status.textContent = 'Đang tìm job tiếp theo của bạn…';
       const next = await findNextJob(job, saved.organization, session.user, signal);

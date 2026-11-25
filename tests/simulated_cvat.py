@@ -153,6 +153,8 @@ def main():
             start, end, edit = (page.locator('.cvat-range-buttons button').nth(i) for i in range(3))
 
             def run_edit(low, high, mode, sources=(), target=None, expect_preview=None, tamper=None):
+                sim('takeReads()')
+                exports_before = sim('exports')
                 sim(f'setFrame({low})'); start.click()
                 sim(f'setFrame({high})'); end.click()
                 edit.click()
@@ -175,6 +177,9 @@ def main():
                     check(True, 'stale data detected; nothing applied blindly')
                 dialog.locator('button', has_text='Áp dụng').click()
                 page.wait_for_selector('dialog.cvat-range-dialog', state='detached')
+                reads = sim('takeReads()')
+                check(reads and all(low <= f <= high for f in reads), f'{mode}: only frames {low}-{high} read ({len(reads)} reads)')
+                check(sim('exports') == exports_before, f'{mode}: no whole-job export')
                 return status.inner_text()
 
             def assert_range_edit(name, low, high, before, after):
@@ -182,7 +187,9 @@ def main():
                 check(all(before[str(f)] == after[str(f)] for f in outside), f'{name}: frames outside {low}-{high} unchanged')
                 check(all(len(set(v)) == len(v) for v in after.values()), f'{name}: no duplicate tags on any frame')
                 check(sim('count("shape")') == shapes, f'{name}: shapes untouched')
-                check(start.inner_text() == 'Start' and end.inner_text() == 'End', f'{name}: Start/End reset')
+                check(start.inner_text() == f'Start {low}' and end.inner_text() == f'End {high}', f'{name}: Start/End kept')
+                check(page.evaluate('!document.querySelector(".cvat-range-band").hidden'), f'{name}: range still highlighted')
+                check(page.evaluate('window.__sim.state.annotation.canvas.ready'), f'{name}: CVAT canvas still ready (no stuck loading)')
 
             print('Range editor (local only)')
             mark = server.mark()
@@ -219,6 +226,43 @@ def main():
             check(page.evaluate('sessionStorage.getItem("loads")') == '1', 'no page reload')
             check(page.evaluate('window.__sim.refreshes') >= 4, 'CVAT view refreshed after each Apply')
 
+            print('Edit again on the kept range')
+            sim('takeReads()')
+            edit.click()
+            page.wait_for_function('document.querySelector("dialog.cvat-range-dialog select") && '
+                                   '!document.querySelector("dialog.cvat-range-dialog select").disabled')
+            summary = page.locator('dialog.cvat-range-dialog .cvat-range-summary').inner_text()
+            check('90' in summary and '99' in summary, f'Edit reopens on the kept range without re-marking ({summary})')
+            check(sim('takeReads()') == [], 'reopening reads nothing: changed frames were re-cached after Apply')
+            page.locator('dialog.cvat-range-dialog button', has_text='Hủy').click()
+            page.wait_for_selector('dialog.cvat-range-dialog', state='detached')
+
+            print('Tag cache')
+            def open_and_cancel(low, high):
+                sim(f'setFrame({low})'); start.click()
+                sim(f'setFrame({high})'); end.click()
+                edit.click()
+                page.wait_for_function('document.querySelector("dialog.cvat-range-dialog select") && '
+                                       '!document.querySelector("dialog.cvat-range-dialog select").disabled')
+                page.locator('dialog.cvat-range-dialog button', has_text='Hủy').click()
+                page.wait_for_selector('dialog.cvat-range-dialog', state='detached')
+            def frames_read():
+                return sorted(set(sim('takeReads()')))
+            sim('takeReads()')
+            open_and_cancel(20, 40)
+            first = frames_read()
+            check(first == list(range(20, 41)), f'first open reads frames 20-40 only ({len(first)} frames)')
+            open_and_cancel(25, 45)
+            second = frames_read()
+            check(second == list(range(41, 46)), f'overlapping range 25-45 reads only the missing frames {second}')
+            sim('setFrame(70)')
+            open_and_cancel(20, 45)
+            check(frames_read() == [], 'reopening after changing frame reads nothing')
+            page.evaluate('window.__sim.userAddTag(30, 3)')
+            open_and_cancel(25, 45)
+            check(frames_read() == list(range(25, 46)), 'a CVAT annotation action invalidates the cache')
+            sim('setFrame(5)'); start.click()
+
             print('Native CVAT save after the edits')
             mark = server.mark()
             unsaved = page.evaluate('window.__sim.job.annotations.hasUnsavedChanges()')
@@ -229,6 +273,8 @@ def main():
             check(unsaved, 'edits were pending before Save')
             check([e['action'] for e in saves] == ['delete', 'create'], f'save used {len(saves)} requests: '
                   + ', '.join(f"{e['action']}({e['tags']})" for e in saves))
+            check(page.evaluate('sessionStorage.getItem("loads")') == '1', 'Save did not reload the page')
+            check(start.inner_text().startswith('Start ') and end.inner_text().startswith('End '), 'Start/End kept after Save')
 
             print('Clear All Tags (local only)')
             mark = server.mark()
@@ -241,6 +287,7 @@ def main():
             check(sim('count("tag")') == 0, 'all tags removed in the browser')
             check(sim('count("shape")') == shapes, 'shapes untouched')
             check(server.since(mark) == [], 'Clear All made no server request')
+            check(page.evaluate('sessionStorage.getItem("loads")') == '1', 'Clear All did not reload the page')
 
             print('Complete & Next')
             mark = server.mark()
@@ -253,6 +300,7 @@ def main():
                 print(f"       {e['method']:5} {e['path']} {extra} {e.get('tags', '')} {e.get('status', 200)}")
             paths = [(e['method'], e['path']) for e in calls]
             check(('GET', '/api/users/self') not in paths, 'user read from CVAT state, not requested')
+            check(page.evaluate('sessionStorage.getItem("cvat-event-range:77")') is None, 'Start/End of the completed job cleared')
             check([e['action'] for e in calls if 'action' in e] == ['delete'], 'Finish saved only the cleared tags, one request')
             job_gets = [e for e in calls if (e['method'], e['path']) == ('GET', '/api/jobs/77')]
             check(len(job_gets) == 2 and job_gets[0].get('status') == 503, '503 retried once')

@@ -67,12 +67,6 @@ function attachCVATRangeEditor(control, slider, anchor) {
     try { sessionStorage.setItem(key, JSON.stringify(marks)); } catch { /* Optional persistence. */ }
     paint();
   }
-  function resetMarks() {
-    marks.start = null;
-    marks.end = null;
-    try { sessionStorage.removeItem(key); } catch { /* Optional persistence. */ }
-    paint();
-  }
   start.onclick = () => mark('start');
   end.onclick = () => mark('end');
   edit.onclick = () => {
@@ -215,7 +209,8 @@ function attachCVATRangeEditor(control, slider, anchor) {
         const { add, replace, remove } = change.counts;
         control.status.textContent = 'Frame ' + low + '–' + high + ': thêm ' + add + ', đổi ' + replace + ', xóa ' + remove +
           ' tag. ' + describeCVATSave(result.save);
-        resetMarks();
+        // Start/End stay marked (and highlighted) for the next edit; Complete & Next clears them.
+        paint();
         close();
       } catch (error) {
         if (signal.aborted) return;

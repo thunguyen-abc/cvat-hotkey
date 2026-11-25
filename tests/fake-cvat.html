@@ -41,6 +41,9 @@
   const deletedFrames = new Set([12, 13]);
   const objects = new Map();
   let nextClientID = 1;
+  let actionCount = 0;
+  let exports = 0;
+  const reads = [];
   let nextServerID = 1000;
   function add(type, frame, labelId, serverID) {
     const object = { clientID: nextClientID++, serverID, type, frame, labelId, removed: false };
@@ -64,6 +67,7 @@
       const object = objects.get(this.clientID);
       if (!object || object.removed || object.frame !== frame || !force) return false;
       object.removed = true;
+      actionCount += 1;
       return true;
     }
   }
@@ -76,15 +80,20 @@
     id: jobId, taskId: 12, startFrame: 0, stopFrame: 99, state: 'in progress', assignee: { id: 5, username: 'annotator' }, labels,
     annotations: {
       async export() {
+        exports += 1;
         const json = (object) => ({ clientID: object.clientID, frame: object.frame, label_id: object.labelId, ...(object.serverID ? { id: object.serverID } : {}) });
         return { tags: live().filter((o) => o.type === 'tag').map(json), shapes: live().filter((o) => o.type === 'shape').map(json), tracks: [] };
       },
-      async get(frame) { return live().filter((object) => object.frame === frame).map(stateOf); },
+      async get(frame) {
+        reads.push(frame);
+        return live().filter((object) => object.frame === frame).map(stateOf);
+      },
       async put(states) {
         for (const state of states) {
           if (state.objectType !== 'tag' || !state.label) throw new Error('bad state');
           add('tag', state.frame, state.label.id, null);
         }
+        actionCount += 1;
       },
       hasUnsavedChanges() { return [...objects.values()].some((o) => (o.removed && o.serverID) || (!o.removed && !o.serverID)); },
     },
@@ -94,15 +103,17 @@
         return null;
       },
     },
-    actions: { async get() { return []; } },
+    // Like CVAT: [action, frame] pairs, capped, no unique ids.
+    actions: { async get() { return { undo: [['Action', actionCount]], redo: [] }; } },
   };
 
   const slider = document.querySelector('[role="slider"]');
   const state = {
     annotation: {
       job: { instance: job },
-      player: { frame: { number: 0 } },
-      annotations: { states: [], saving: { uploading: false }, filters: [], zLayer: { min: 0, max: 0 } },
+      player: { frame: { number: 0, fetching: false } },
+      canvas: { ready: true },
+      annotations: { states: [], history: { undo: [['Action', 0]], redo: [] }, saving: { uploading: false }, filters: [], zLayer: { min: 0, max: 0 } },
     },
     settings: { workspace: { autoSave: false, autoSaveInterval: 900000, showAllInterpolationTracks: false } },
     auth: { user: { id: 5, username: 'annotator' } },
@@ -111,19 +122,38 @@
     tagsOn(frame) { return live().filter((o) => o.frame === frame && o.type === 'tag').map((o) => o.labelId).sort(); },
     count(type, labelId) { return live().filter((o) => o.type === type && (labelId === undefined || o.labelId === labelId)).length; },
     setFrame(frame) { state.annotation.player.frame.number = frame; slider.setAttribute('aria-valuenow', String(frame)); },
+    // A change CVAT's history does not reveal (tests the live re-check on Apply).
     addTag(frame, labelId) { add('tag', frame, labelId, null); },
+    // A normal user action, e.g. a hotkey: CVAT updates its history in the store.
+    async userAddTag(frame, labelId) {
+      add('tag', frame, labelId, null);
+      actionCount += 1;
+      state.annotation.annotations.history = await job.actions.get();
+    },
+    get exports() { return exports; },
+    // Frames read through job.annotations.get since the last call.
+    takeReads() { return reads.splice(0); },
   };
   const store = { getState: () => state, subscribe() { return () => {}; } };
   const dispatch = (action) => {
     if (typeof action === 'function') return action(dispatch, store.getState);
-    if (action.type === 'FETCH_ANNOTATIONS_SUCCESS') state.annotation.annotations.states = action.payload.states;
+    if (action.type === 'FETCH_ANNOTATIONS_SUCCESS') {
+      window.__sim.refreshes += 1;
+      state.annotation.annotations.states = action.payload.states;
+      state.annotation.annotations.history = action.payload.history;
+    }
     return action;
   };
   const actionCreators = {
+    // Like CVAT 2.56: CHANGE_FRAME sets canvas.ready = false, and the canvas confirms
+    // readiness only after a new image. On the same frame it never does.
     changeFrameAsync: (frame, fill, step, force) => async () => {
       if (!force && frame === state.annotation.player.frame.number) return;
-      window.__sim.refreshes += 1;
+      const same = frame === state.annotation.player.frame.number;
+      state.annotation.canvas.ready = false;
       state.annotation.annotations.states = await job.annotations.get(frame);
+      state.annotation.annotations.history = await job.actions.get();
+      if (!same) state.annotation.canvas.ready = true;
     },
   };
   const core = { classes: { ObjectState }, enums: { ObjectType: { TAG: 'tag', SHAPE: 'shape', TRACK: 'track' } } };

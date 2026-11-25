@@ -40,9 +40,10 @@ The deployed server runs CVAT **2.56.1** (`/api/server/about`). When a job opens
 The extension therefore never writes annotations itself. It changes the collection the way CVAT's tag sidebar does, and leaves the upload to CVAT's save:
 
 - **Plugin entry:** `window.cvatUI.registerComponent(builder)`. The builder receives `{ core, store, dispatch, actionCreators }`. `cvat-bridge.js` keeps that object. Chrome injects a file only once per page even when two `content_scripts` entries list it, so the MAIN-world entry contains `cvat-bridge.js` only.
-- **Read:** `store.getState().annotation.job.instance` is the job. `job.annotations.export()` lists tags with `clientID`, `frame` and `label_id`. Labels come from `job.labels`. Deleted frames and frame filters come from `job.frames.search({ notDeleted: true }, from, to)`, which reads cached frame meta.
+- **Read:** `store.getState().annotation.job.instance` is the job. The range editor reads **only the frames between Start and End**, one at a time, with `job.annotations.get(frame, false, [])` (tags filtered by `objectType`), and checks `job.frames.search({ notDeleted: true }, frame, frame)` for deleted frames and frame filters. Both come from memory and cached frame meta. Labels come from `job.labels`. Only Clear All Tags, which is job-wide, uses `job.annotations.export()`.
 - **Write:** create tags with `job.annotations.put([new core.classes.ObjectState({ objectType: core.enums.ObjectType.TAG, label, frame })])`. Delete them with `state.delete(frame, true)` on the states from `job.annotations.get(frame, false, [])`. Each delete is one Undo step.
-- **Refresh:** `dispatch(actionCreators.changeFrameAsync(frame, false, 1, true))` re-renders the current frame from the collection and the cached image. If CVAT skips it (canvas busy), the bridge dispatches `FETCH_ANNOTATIONS_SUCCESS` with the same payload shape CVAT uses.
+- **Refresh:** dispatch `FETCH_ANNOTATIONS_SUCCESS` with `{ states, history, minZ, maxZ }` built from `job.annotations.get(currentFrame, showAllInterpolationTracks, filters)`, plus ground-truth states when shown. This is CVAT's own `fetchAnnotationsAsync`, the path the tag sidebar uses after creating a tag. **Never call `changeFrameAsync` on the current frame:** `CHANGE_FRAME` sets `canvas.ready = false`, and on the same frame the canvas only emits `OBJECTS_UPDATED`, not `canvas.setup`, so `CONFIRM_CANVAS_READY` never comes and CVAT shows loading until the page reloads. v1.6.0 had this bug; `tests/simulated_cvat.py` now checks `canvas.ready`.
+- **Cache:** the bridge keeps a per-frame cache (`frame -> { tags, valid }`) for the open job. Reopening Edit on an overlapping range reads only the frames not cached yet; changing frame or saving keeps the cache. The key is CVAT's undo history from the store, which changes with every annotation action, so any tag change, undo or redo empties it. Apply always re-reads its range live and compares fingerprints, because the history is capped at 32 entries without ids, so a stale hit is possible but never applied. After Apply, untouched frames of the range stay cached and only the changed frames are re-read. Clear All and Complete & Next drop the cache; Complete & Next also removes the job's Start/End marks.
 - **Safety:** the bridge refuses to work while `annotation.annotations.saving.uploading` is true. `rangeSnapshot` returns a fingerprint of the tags in the range. `applyRange` re-reads the live tags, refuses a changed fingerprint (`stale`), checks every planned delete and create (no tag outside the range, no duplicate target), and only then applies.
 
 These are internal CVAT structures, not a published API. They match 2.56.1. After a CVAT upgrade, run `tests/simulated_cvat.py` and test once on a real job. If they change, update the bridge.
@@ -87,7 +88,7 @@ Done after v1.5.1, in the change that added the bridge:
 
 - Edit and Clear All Tags work on CVAT's in-memory annotations. No page reload, no extension request; the current job and frame stay as they are.
 - The new tags show at once. CVAT's own save uploads them (diff only), so a later native Save cannot overwrite them with stale state: they *are* CVAT's state.
-- Start/End and the highlight reset after a successful Apply. On failure the range and the selection stay for a retry.
+- Start/End and the highlight stay after Apply (user request, replacing the handover's reset), so Edit can be reopened on the same range at once; they are stored per job in sessionStorage and cleared by Complete & Next. On failure the dialog keeps its selection for a retry.
 - The dialog blocks double submission, marks destructive operations, previews add/replace/remove counts, and refuses to apply if the tags in the range changed after the preview.
 
 Still open, from the original handover:
@@ -112,7 +113,7 @@ Checked by `tests/simulated_cvat.py` (simulated CVAT, 2026-11-25):
 - [x] No duplicate tags; frames outside the range and non-tag annotations do not change.
 - [x] No page reload, no extension request during Edit or Clear All; the view refreshes.
 - [x] CVAT's save afterwards sends only the changed tags (one delete and one create request).
-- [x] Start/End reset after success; a change between preview and Apply is caught.
+- [x] Start/End kept after Apply and Save, cleared after Complete & Next; a change between preview and Apply is caught.
 - [x] Editing several ranges one after another works.
 - [x] Complete & Next: user from state, save through CVAT, 503 retried after `Retry-After`, next job found with one filtered `page_size=1` request.
 
