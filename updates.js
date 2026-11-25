@@ -89,8 +89,38 @@ chrome.alarms.onAlarm.addListener(({ name }) => {
   if (name === alarmName) void safeCheck();
   if (name === localAlarmName) void activateLocalUpdate();
 });
+// The desktop updater registers itself as a native messaging host (Setup-Updater.cmd).
+// It accepts only { type: 'status' } and { type: 'update' }; 'update' starts a detached
+// update run, so closing the popup does not interrupt the install.
+const nativeHost = 'com.abcstudio.cvat_event_hotkeys';
+
+function callUpdater(message) {
+  return new Promise((resolve) => {
+    try {
+      chrome.runtime.sendNativeMessage(nativeHost, message, (response) => {
+        const error = chrome.runtime.lastError?.message;
+        if (error) {
+          resolve({ ok: false, error: /not found/i.test(error) ? 'not-installed' : /forbidden/i.test(error) ? 'forbidden' : error });
+        } else {
+          resolve(response && typeof response === 'object' ? response : { ok: false, error: 'empty' });
+        }
+      });
+    } catch (error) {
+      resolve({ ok: false, error: String(error?.message || error) });
+    }
+  });
+}
+
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (sender.url !== chrome.runtime.getURL('update.html')) return false;
+  if (message?.type === 'updater-status') {
+    void (async () => respond({ ...(await callUpdater({ type: 'status' })), extensionId: chrome.runtime.id }))();
+    return true;
+  }
+  if (message?.type === 'install-update') {
+    void (async () => respond(await callUpdater({ type: 'update' })))();
+    return true;
+  }
   if (message?.type === 'check-release') {
     void (async () => respond(await safeCheck()))();
     return true;

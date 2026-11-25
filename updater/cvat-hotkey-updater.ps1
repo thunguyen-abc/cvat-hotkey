@@ -13,6 +13,7 @@
     status     Xem cấu hình, lịch chạy và nhật ký gần nhất.
     rollback   Khôi phục bản sao lưu gần nhất.
     uninstall  Gỡ lịch chạy và dữ liệu của trình cập nhật (giữ nguyên extension).
+    native     Chỉ dành cho Chrome/Edge (native messaging): nút "Cập nhật ngay" trong extension.
 
 .EXAMPLE
   powershell -NoProfile -ExecutionPolicy Bypass -File .\cvat-hotkey-updater.ps1 setup
@@ -20,7 +21,7 @@
 [CmdletBinding()]
 param(
   [Parameter(Position = 0)]
-  [ValidateSet('setup', 'check', 'status', 'rollback', 'uninstall')]
+  [ValidateSet('setup', 'check', 'status', 'rollback', 'uninstall', 'native')]
   [string]$Command = 'setup',
 
   # Thư mục extension chứa manifest.json. Mặc định: thư mục cha của thư mục chứa script.
@@ -40,7 +41,14 @@ param(
   [switch]$Force,
 
   # Không hỏi xác nhận trên console (setup/rollback/uninstall).
-  [switch]$Yes
+  [switch]$Yes,
+
+  # Người dùng đã bấm "Cập nhật ngay": không hỏi lại theo chế độ confirm. Vẫn hỏi nếu
+  # bản mới xin thêm quyền.
+  [switch]$Confirmed,
+
+  # native: origin của extension gọi tới, do Chrome truyền vào.
+  [string]$Origin
 )
 
 Set-StrictMode -Version 3
@@ -58,6 +66,18 @@ $BackupRoot = Join-Path $DataDir 'backups'
 $WorkRoot = Join-Path $DataDir 'work'
 $StateFileName = 'updater-state.json'
 $UpdaterEntry = 'updater/cvat-hotkey-updater.ps1'
+
+# Native messaging: nút "Cập nhật ngay" trong popup gọi script này qua Chrome/Edge.
+$NativeHostName = 'com.abcstudio.cvat_event_hotkeys'
+$NativeHostManifest = Join-Path $DataDir "$NativeHostName.json"
+$NativeHostCmd = Join-Path $DataDir 'native-host.cmd'
+# Chế độ thử nghiệm chỉ đăng ký cho Chromium (dùng trong tests), không đụng Chrome/Edge thật.
+$NativeRegistryRoots = if ($env:CVAT_HOTKEYS_UPDATER_HOME) {
+  @('HKCU:\Software\Chromium\NativeMessagingHosts')
+} else {
+  @('HKCU:\Software\Google\Chrome\NativeMessagingHosts', 'HKCU:\Software\Microsoft\Edge\NativeMessagingHosts')
+}
+if ($Command -eq 'native') { $Scheduled = [switch]$true }  # stdout thuộc về giao thức native messaging
 
 # Giới hạn và danh sách cho phép dùng khi kiểm tra bản phát hành.
 $AllowedHosts = @('api.github.com', 'github.com', 'objects.githubusercontent.com', 'release-assets.githubusercontent.com')
@@ -107,12 +127,15 @@ function Read-Config {
   if (-not (Test-Path -LiteralPath $ConfigPath)) { return $null }
   $raw = Get-Content -LiteralPath $ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
   $config = [ordered]@{}
-  foreach ($key in 'extensionDir', 'mode', 'intervalHours', 'installedFiles', 'skipVersion', 'lastCheck', 'lastResult', 'latestVersion') {
+  foreach ($key in 'extensionDir', 'mode', 'intervalHours', 'installedFiles', 'skipVersion', 'lastCheck', 'lastResult', 'latestVersion',
+      'extensionIds', 'allowedOrigins') {
     $config[$key] = Get-Prop $raw $key
   }
   if ($config.mode -notin @('auto', 'confirm')) { $config.mode = 'confirm' }
   if (-not $config.intervalHours) { $config.intervalHours = 3 }
   if ($config.installedFiles) { $config.installedFiles = @($config.installedFiles) }
+  $config.extensionIds = @($config.extensionIds | Where-Object { $_ -match '^[a-p]{32}$' })
+  $config.allowedOrigins = @($config.allowedOrigins | Where-Object { $_ })
   return $config
 }
 
@@ -411,6 +434,7 @@ function Invoke-Check {
   if (-not $config) { throw 'Chưa cài trình cập nhật. Hãy chạy lệnh setup trước.' }
   $config.extensionDir = Resolve-ExtensionDir $config.extensionDir
   $current = Get-ManifestFromDir $config.extensionDir
+  try { Register-NativeHost $config } catch { Write-Log "Không đăng ký được nút cập nhật: $($_.Exception.Message)" 'WARN' }
   $work = Join-Path $WorkRoot ([Guid]::NewGuid().ToString('N'))
   $result = 'error'
   $message = ''
@@ -451,7 +475,7 @@ function Invoke-Check {
     $before = Get-PermissionSet $current
     $added = @(Get-PermissionSet $checked.Manifest | Where-Object { $before -notcontains $_ })
     if ($added.Count) { Write-Log "v$($release.Version) xin thêm quyền: $($added -join '; ')" 'WARN' }
-    if ($config.mode -eq 'confirm' -or $added.Count) {
+    if (($config.mode -eq 'confirm' -and -not $Confirmed) -or $added.Count) {
       if (-not (Confirm-Update $release.Version $current.version $added)) {
         $result = 'declined'; $message = "Chưa cài v$($release.Version) theo lựa chọn của người dùng."
         return
@@ -472,6 +496,122 @@ function Invoke-Check {
     Write-UpdaterState $config $result $message
     Save-Config $config
     if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue }
+  }
+}
+
+# ---------------------------------------------------------------- native messaging
+
+# Đường dẫn với đúng chữ hoa/thường trên đĩa: ID của extension unpacked được tính từ nó.
+function Get-TrueCasePath([string]$Path) {
+  $dir = New-Object IO.DirectoryInfo ((Get-Item -LiteralPath $Path -Force).FullName.TrimEnd('\'))
+  $parts = New-Object System.Collections.Generic.List[string]
+  while ($dir.Parent) {
+    $match = @($dir.Parent.GetDirectories($dir.Name)) | Where-Object { $_.Name -ieq $dir.Name } | Select-Object -First 1
+    $parts.Insert(0, $(if ($match) { $match.Name } else { $dir.Name }))
+    $dir = $dir.Parent
+  }
+  $root = $dir.FullName.Substring(0, 1).ToUpperInvariant() + $dir.FullName.Substring(1)
+  return $root + ($parts -join '\')
+}
+
+# Chromium: SHA-256 của đường dẫn (UTF-16LE, ổ đĩa viết hoa), 16 byte đầu, mỗi nửa byte -> a..p.
+function Get-UnpackedExtensionId([string]$Path) {
+  if ($Path -match '^[a-z]:') { $Path = $Path.Substring(0, 1).ToUpperInvariant() + $Path.Substring(1) }
+  $hash = [Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::Unicode.GetBytes($Path))
+  return -join ($hash[0..15] | ForEach-Object { [char](97 + ($_ -shr 4)); [char](97 + ($_ -band 15)) })
+}
+
+function Register-NativeHost($Config) {
+  $ids = @(Get-UnpackedExtensionId (Get-TrueCasePath $Config.extensionDir)) + @($Config.extensionIds) | Select-Object -Unique
+  $origins = @($ids | ForEach-Object { "chrome-extension://$_/" })
+  New-Item -ItemType Directory -Path $DataDir -Force | Out-Null
+  # %~dp0 giữ đúng đường dẫn kể cả khi tên người dùng có dấu. Chỉ truyền origin (%1) do Chrome cấp.
+  $cmd = "@echo off`r`npowershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"%~dp0cvat-hotkey-updater.ps1`" native -Origin %1`r`n"
+  [IO.File]::WriteAllText($NativeHostCmd, $cmd, [Text.Encoding]::ASCII)
+  $manifest = [ordered]@{
+    name = $NativeHostName
+    description = 'CVAT Event Hotkeys updater'
+    path = $NativeHostCmd
+    type = 'stdio'
+    allowed_origins = $origins
+  }
+  Write-Utf8File $NativeHostManifest ($manifest | ConvertTo-Json)
+  foreach ($root in $NativeRegistryRoots) {
+    $key = "$root\$NativeHostName"
+    New-Item -Path $key -Force | Out-Null
+    Set-Item -Path $key -Value $NativeHostManifest
+  }
+  $Config.allowedOrigins = $origins
+}
+
+function Unregister-NativeHost {
+  foreach ($root in $NativeRegistryRoots) {
+    $key = "$root\$NativeHostName"
+    if (Test-Path $key) { Remove-Item -Path $key -Recurse -Force }
+  }
+}
+
+function Read-NativeMessage {
+  $stdin = [Console]::OpenStandardInput()
+  $read = {
+    param([int]$Count)
+    $buffer = New-Object byte[] $Count
+    $offset = 0
+    while ($offset -lt $Count) {
+      $got = $stdin.Read($buffer, $offset, $Count - $offset)
+      if ($got -le 0) { throw 'Chrome đã đóng kết nối.' }
+      $offset += $got
+    }
+    return , $buffer
+  }
+  $length = [BitConverter]::ToInt32((& $read 4), 0)
+  if ($length -le 0 -or $length -gt 65536) { throw 'Thông điệp không hợp lệ.' }
+  return [Text.Encoding]::UTF8.GetString((& $read $length)) | ConvertFrom-Json
+}
+
+function Write-NativeMessage($Object) {
+  $bytes = [Text.Encoding]::UTF8.GetBytes(($Object | ConvertTo-Json -Compress -Depth 4))
+  $stdout = [Console]::OpenStandardOutput()
+  $stdout.Write([BitConverter]::GetBytes([int]$bytes.Length), 0, 4)
+  $stdout.Write($bytes, 0, $bytes.Length)
+  $stdout.Flush()
+}
+
+# Chrome chạy lệnh này khi extension gọi. Chỉ hai lệnh cố định; không tham số nào trong
+# thông điệp được dùng làm đường dẫn hay dòng lệnh.
+function Invoke-Native {
+  try {
+    $message = Read-NativeMessage
+    $config = Read-Config
+    if (-not $config) { Write-NativeMessage @{ ok = $false; error = 'not-configured' }; return }
+    if (@($config.allowedOrigins) -notcontains $Origin) {
+      Write-Log "Từ chối native messaging từ $Origin" 'WARN'
+      Write-NativeMessage @{ ok = $false; error = 'origin' }
+      return
+    }
+    switch ([string](Get-Prop $message 'type')) {
+      'status' {
+        Write-NativeMessage @{ ok = $true; mode = $config.mode; lastCheck = $config.lastCheck; lastResult = $config.lastResult }
+      }
+      'update' {
+        $probe = New-Object Threading.Mutex($false, 'Local\CVATEventHotkeysUpdater')
+        $free = $false
+        try { $free = $probe.WaitOne(0) } catch [Threading.AbandonedMutexException] { $free = $true }
+        if ($free) { $probe.ReleaseMutex() }
+        $probe.Dispose()
+        if ($free) {
+          # Chạy tách khỏi Chrome để việc cài không bị ngắt khi popup đóng.
+          $arguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" check -Scheduled -Confirmed -Force' -f $InstalledScript
+          Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList $arguments -WindowStyle Hidden
+          Write-Log 'Bắt đầu cập nhật theo nút bấm trong extension.'
+        }
+        Write-NativeMessage @{ ok = $true; started = $free; running = -not $free }
+      }
+      default { Write-NativeMessage @{ ok = $false; error = 'unknown' } }
+    }
+  } catch {
+    Write-Log "Native messaging lỗi: $($_.Exception.Message)" 'ERROR'
+    try { Write-NativeMessage @{ ok = $false; error = $_.Exception.Message } } catch { }
   }
 }
 
@@ -517,6 +657,7 @@ Trình cập nhật sẽ:
   - Chỉ cài bản mới hơn bản đang dùng, có ZIP khớp SHA-256 và manifest đúng tên, đúng phiên bản.
   - Sao lưu bản đang dùng trước khi ghi đè (giữ $KeepBackups bản gần nhất, khôi phục bằng lệnh rollback).
   - Luôn hỏi lại nếu bản mới xin thêm quyền hoặc thêm trang web, kể cả ở chế độ tự động.
+  - Cho nút "Cập nhật ngay" trong extension gọi trình cập nhật (native messaging, chỉ extension này).
 Dữ liệu, nhật ký và bản sao lưu nằm trong $DataDir
 "@
 
@@ -559,10 +700,11 @@ Dữ liệu, nhật ký và bản sao lưu nằm trong $DataDir
   $config = Read-Config
   if (-not $config -or $config.extensionDir -ne $resolved) {
     $config = [ordered]@{ extensionDir = $resolved; mode = $selected; intervalHours = $IntervalHours; installedFiles = $null
-      skipVersion = $null; lastCheck = $null; lastResult = $null; latestVersion = $null }
+      skipVersion = $null; lastCheck = $null; lastResult = $null; latestVersion = $null; extensionIds = @(); allowedOrigins = @() }
   }
   $config.mode = $selected
   $config.intervalHours = $IntervalHours
+  Register-NativeHost $config
   Save-Config $config
   Register-UpdaterTask $IntervalHours
   Write-Log "Đã bật trình cập nhật: chế độ $selected, mỗi $IntervalHours giờ, thư mục $resolved"
@@ -572,6 +714,7 @@ Dữ liệu, nhật ký và bản sao lưu nằm trong $DataDir
   try { Invoke-Check } catch { Write-Host "Lần kiểm tra đầu lỗi: $($_.Exception.Message)" -ForegroundColor Yellow }
   Write-Host ''
   Write-Host "Xong. Xem trạng thái: $InstalledScript status" -ForegroundColor Green
+  Write-Host 'Nút "Cập nhật ngay" trong cửa sổ extension giờ cài bản mới trực tiếp (Chrome và Edge).'
   Write-Host 'Lưu ý: Chrome phải đang dùng extension "Load unpacked" từ đúng thư mục trên.'
 }
 
@@ -584,6 +727,7 @@ function Show-Status {
   Write-Host "Lần kiểm tra cuối : $($config.lastCheck) ($($config.lastResult))"
   Write-Host "Bản mới nhất      : $($config.latestVersion)"
   if ($config.skipVersion) { Write-Host "Đang bỏ qua       : v$($config.skipVersion)" }
+  Write-Host "Nút cập nhật      : $(@($config.allowedOrigins) -join ', ')"
   $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
   if ($task) {
     $info = $task | Get-ScheduledTaskInfo
@@ -630,6 +774,7 @@ function Invoke-Uninstall {
   if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
   }
+  Unregister-NativeHost
   if ($config -and $config.extensionDir) {
     $state = Join-Path $config.extensionDir $StateFileName
     if (Test-Path -LiteralPath $state) { Remove-Item -LiteralPath $state -Force }
@@ -642,6 +787,11 @@ function Invoke-Uninstall {
 
 # Cho phép dot-source để kiểm thử từng hàm mà không chạy lệnh.
 if ($MyInvocation.InvocationName -eq '.') { return }
+
+if ($Command -eq 'native') {
+  Invoke-Native
+  exit 0
+}
 
 $mutex = New-Object Threading.Mutex($false, 'Local\CVATEventHotkeysUpdater')
 $owned = $false

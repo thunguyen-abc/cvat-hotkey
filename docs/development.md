@@ -64,7 +64,8 @@ All direct GETs go through `cvatEventRequests` in `bridge-client.js`: one reques
 
 1. A tag push publishes `cvat-event-hotkeys-vX.Y.Z.zip` and `cvat-event-hotkeys-vX.Y.Z.zip.sha256`.
 2. On each user's machine, the scheduled task runs `cvat-hotkey-updater.ps1 check -Scheduled` at logon and every 3 h. It verifies the ZIP (SHA-256 against the GitHub API `digest` and the `.sha256` asset, path allowlist, manifest name and version, permission diff). In `confirm` mode it asks first. Then it backs up the current install and writes the new files, with `manifest.json` last.
-3. `updates.js` fetches its own `manifest.json` from disk every minute, on browser startup and when the popup opens. When the version differs from the running one, it calls `chrome.runtime.reload()`.
+3. The popup's **Cập nhật ngay** button sends `{ type: 'update' }` through the service worker to the native messaging host `com.abcstudio.cvat_event_hotkeys`, which `setup` registers for Chrome and Edge, and every `check` refreshes. The host checks the caller origin, starts a detached `check -Scheduled -Confirmed -Force` and replies at once. The popup then follows `updater-state.json`. `allowed_origins` holds the unpacked extension ID computed from the true-case folder path (SHA-256 of the UTF-16LE path, upper-case drive letter, first 16 bytes, nibbles mapped to `a`–`p`). Without a registered host, the popup falls back to the manual ZIP link.
+4. `updates.js` fetches its own `manifest.json` from disk every minute, on browser startup and when the popup opens. When the version differs from the running one, it calls `chrome.runtime.reload()`.
 
 Points that are easy to break:
 
@@ -130,6 +131,7 @@ Still to check on a real job:
 - Syntax: `node --check` on every `.js` file. PowerShell: `[System.Management.Automation.Language.Parser]::ParseFile(...)`.
 - Regression: `python tests/simulated_cvat.py`. It loads the extension unpacked into Playwright's Chromium, serves `tests/fake-cvat.html` at the CVAT URL, fakes the API, and counts every request. Also check dialogs at 390 px and 1366 px widths.
 - Live: use an authorized test job only, never production annotations.
+- Native button, end to end: `python tests/native_update.py`. It installs a fake older copy, runs `setup` in test mode (host registered for Chromium only, under `HKCU\Software\Chromium\NativeMessagingHosts`), clicks **Cập nhật ngay** in Chromium, and expects the latest GitHub release on disk and running. It cleans up the registry key, task and folders afterwards.
 - Updater: set `CVAT_HOTKEYS_UPDATER_HOME` to a temporary folder. This isolates config, logs, backups and the task name (`… (test)`). Dot-source the script to call `Test-ReleaseArchive`, `Get-PermissionSet` and the other functions directly. To test Chrome activation, load the extension through CDP `Extensions.loadUnpacked` with Developer mode on. Extensions loaded with `--load-extension` are disabled by `chrome.runtime.reload()`, so they cannot test this path.
 
 ## Release

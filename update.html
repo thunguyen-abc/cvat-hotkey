@@ -8,17 +8,19 @@
   h1 { margin: 0 0 6px; font-size: 19px; }
   p { margin: 8px 0; line-height: 1.45; }
   #installed { margin-bottom: 13px; padding-bottom: 11px; border-bottom: 1px solid #d5dfe6; color: #506273; font-size: 13px; }
-  button, #update { box-sizing: border-box; min-height: 38px; padding: 7px 14px; font: inherit; border-radius: 7px; }
+  button, #update, #install { box-sizing: border-box; min-height: 38px; padding: 7px 14px; font: inherit; border-radius: 7px; }
   :focus-visible { outline: 3px solid #2774c8; outline-offset: 2px; }
   button { border: 1px solid #a2b2ab; background: white; color: inherit; cursor: pointer; }
-  #update { border: 1px solid #0f5d50; background: #116659; color: white; text-decoration: none; font-weight: 600; }
+  #update, #install { border: 1px solid #0f5d50; background: #116659; color: white; text-decoration: none; font-weight: 600; }
   #update:not([hidden]) { display: inline-block; }
+  #install:disabled { opacity: .65; cursor: progress; }
   #install-help { font-size: 12px; }
   #updater { margin-top: 13px; padding-top: 11px; border-top: 1px solid #d5dfe6; color: #506273; font-size: 12px; }
 </style>
 <h1>CVAT Event Hotkeys</h1>
 <p id="installed"></p>
 <p id="status" role="status">Đang kiểm tra bản mới…</p>
+<button type="button" id="install" hidden>Cập nhật ngay</button>
 <a id="update" hidden target="_blank" rel="noopener noreferrer">Update</a>
 <button type="button" id="retry" hidden>Kiểm tra lại</button>
 <p id="install-help" hidden>Giải nén ZIP đè vào thư mục extension, bấm Reload trong chrome://extensions, rồi tải lại tab CVAT.</p>

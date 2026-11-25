@@ -13,6 +13,7 @@ GitHub Release (tag vX.Y.Z)
   ├─ cvat-event-hotkeys-vX.Y.Z.zip
   └─ cvat-event-hotkeys-vX.Y.Z.zip.sha256
         │  Task Scheduler: khi đăng nhập + mỗi 3 giờ
+        │  hoặc nút "Cập nhật ngay" trong popup (native messaging)
         ▼
 cvat-hotkey-updater.ps1 check
   1. Đọc release mới nhất qua api.github.com
@@ -29,6 +30,17 @@ chrome.runtime.reload(): Chrome nạp bản mới
 Extension tự kích hoạt bản mới khi `version` trong `manifest.json` trên đĩa khác bản đang chạy. Việc kiểm tra diễn ra mỗi phút, khi Chrome khởi động và khi mở cửa sổ extension. Bản rollback có phiên bản thấp hơn cũng được kích hoạt theo cách này. Tải lại extension không tải lại tab CVAT. Tab đang mở tiếp tục chạy mã cũ cho đến khi bạn tải lại trang, và annotation chưa lưu vẫn còn nguyên.
 
 Chrome chỉ nạp lại được extension unpacked khi **Developer mode** đang bật. Nếu tắt Developer mode, Chrome vô hiệu hóa extension ở lần tải lại tiếp theo.
+
+### Nút "Cập nhật ngay"
+
+`setup` đăng ký trình cập nhật làm *native messaging host* `com.abcstudio.cvat_event_hotkeys` cho Chrome và Edge (khóa `HKCU\Software\Google\Chrome\NativeMessagingHosts` và `HKCU\Software\Microsoft\Edge\NativeMessagingHosts`). Mỗi lần `check` chạy, đăng ký được làm mới, nên máy đã cài trình cập nhật từ trước sẽ có nút này sau lần kiểm tra kế tiếp.
+
+1. Popup gửi `{ type: 'update' }` qua service worker tới host.
+2. Chrome chạy `native-host.cmd`, rồi script ở chế độ `native`. Script kiểm tra origin do Chrome truyền vào, rồi khởi chạy `check` **tách khỏi Chrome** và trả lời ngay. Đóng popup không làm ngắt việc cài.
+3. `check` chạy như khi theo lịch, cộng thêm `-Confirmed` (lần bấm nút là lời đồng ý, nên không hỏi lại ở chế độ Hỏi trước) và `-Force` (cài cả bản từng bị bỏ qua sau rollback). Nếu bản mới xin thêm quyền, script vẫn hiện hộp thoại hỏi.
+4. Popup đọc `updater-state.json` để hiện kết quả, rồi kích hoạt bản mới.
+
+Chỉ extension có ID nằm trong `allowed_origins` mới gọi được host. ID của bản cài unpacked được Chrome tính từ đường dẫn thư mục: SHA-256 của đường dẫn dạng UTF-16LE (ổ đĩa viết hoa), 16 byte đầu, mỗi nửa byte đổi thành chữ `a`–`p`. Script tính ID từ đường dẫn với đúng chữ hoa/thường trên đĩa.
 
 ## Thiết lập lần đầu
 
@@ -59,6 +71,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\updater\cvat-hotkey-update
 | Ghi đè nhầm thư mục | Thư mục phải chứa đúng manifest của extension. Script từ chối symlink/junction và thư mục git. Chỉ file thuộc bản phát hành mới được ghi hoặc xóa. |
 | Cài dở dang | Script sao lưu trước khi ghi (giữ 3 bản). Mỗi file được ghi qua file tạm rồi đổi tên. `manifest.json` ghi sau cùng nên Chrome chỉ kích hoạt khi đủ file. Nếu lỗi, script tự khôi phục bản sao lưu. Mutex ngăn hai lần cập nhật chạy cùng lúc. |
 | Leo thang đặc quyền | Tác vụ chạy dưới tài khoản người dùng hiện tại, `RunLevel Limited`, không cần Administrator. Script không dùng token GitHub và không gửi dữ liệu cá nhân, chỉ gửi User-Agent `cvat-event-hotkeys-updater`. |
+| Trang web hoặc extension khác gọi trình cập nhật | Chrome chỉ cho extension có ID trong `allowed_origins` kết nối. Script kiểm tra lại origin, chỉ nhận `status` và `update`, không dùng nội dung thông điệp làm đường dẫn hay tham số dòng lệnh. `native-host.cmd` chỉ chuyển origin (`%1`). Lệnh `update` chỉ chạy đúng quy trình `check` với mọi bước kiểm tra ở trên. |
 | Popup hiển thị dữ liệu giả | `updater-state.json` chỉ để hiển thị. Popup đọc nó như dữ liệu và gán bằng `textContent`. Extension không dựa vào file này để quyết định gì. |
 
 ### Rủi ro còn lại
@@ -88,6 +101,8 @@ Vì release đi thẳng tới máy người dùng, nên bật các thiết lập
 | `%LOCALAPPDATA%\CVATEventHotkeys\cvat-hotkey-updater.ps1` | Bản script mà Task Scheduler chạy |
 | `<thư mục extension>\updater-state.json` | Trạng thái để cửa sổ extension hiển thị |
 | Task Scheduler → `CVAT Event Hotkeys Updater` | Lịch chạy |
+| `%LOCALAPPDATA%\CVATEventHotkeys\native-host.cmd`, `com.abcstudio.cvat_event_hotkeys.json` | Host cho nút "Cập nhật ngay" |
+| `HKCU\Software\Google\Chrome\NativeMessagingHosts\com.abcstudio.cvat_event_hotkeys` (và nhánh Edge tương ứng) | Đăng ký host với Chrome/Edge |
 
 `uninstall` xóa tất cả các mục trên và giữ nguyên extension.
 
@@ -100,12 +115,15 @@ Vì release đi thẳng tới máy người dùng, nên bật các thiết lập
 | `GitHub trả về HTTP 403` | Đã chạm giới hạn yêu cầu của GitHub. Lần chạy sau sẽ tự thử lại. |
 | `SHA-256 không khớp` | ZIP tải về khác file trên GitHub. Không cài. Báo cho người phát triển kiểm tra release. |
 | `xin thêm quyền` | Release mới cần thêm quyền. Chỉ chọn Yes nếu bản phát hành có ghi chú giải thích lý do. |
+| Popup không có nút **Cập nhật ngay**, chỉ có **Update** | Máy chưa cài trình cập nhật, hoặc trình cập nhật chưa chạy bản có nút này. Chạy `Setup-Updater.cmd setup` (hoặc `check`) một lần. |
+| Popup báo "chưa nhận extension này (ID …)" | ID tính từ đường dẫn khác ID Chrome đang dùng, ví dụ do thư mục bị đổi tên hoặc chuyển chỗ. Chạy lại `setup` và chọn đúng thư mục đang nạp trong `chrome://extensions`. |
 | Bản mới lỗi | Chạy `rollback`. Bản lỗi sẽ không tự cài lại. Khi có bản sửa mới hơn, trình cập nhật tự cài như bình thường. Muốn cài lại bản đã bỏ qua, chạy `check -Force`. |
 | Muốn xem tác vụ | Mở Task Scheduler → Task Scheduler Library → `CVAT Event Hotkeys Updater`, hoặc chạy `status`. |
 
 ## Giới hạn
 
 - Hiện chỉ hỗ trợ Windows (PowerShell 5.1 có sẵn trên Windows 10/11). macOS và Linux vẫn cập nhật thủ công.
-- Trình cập nhật có từ v1.6.0. Máy đang dùng v1.5.1 trở về trước cần tải thủ công v1.6.0 một lần, rồi chạy `Setup-Updater.cmd`.
+- Trình cập nhật có từ v1.6.0, nút "Cập nhật ngay" có từ v1.6.2. Máy đang dùng v1.5.1 trở về trước cần tải thủ công một lần, rồi chạy `Setup-Updater.cmd`.
+- v1.6.2 xin thêm quyền `nativeMessaging`. Vì vậy máy đang ở chế độ Tự động sẽ được hỏi một lần trước khi cài bản này. Đây là đúng thiết kế.
 - Mỗi lần chạy theo lịch, một cửa sổ PowerShell có thể lóe lên rất nhanh. Đây là giới hạn của Task Scheduler khi chạy PowerShell.
 - Hộp thoại ở chế độ Hỏi trước tự đóng sau 15 phút nếu không ai trả lời. Lần chạy sau sẽ hỏi lại.

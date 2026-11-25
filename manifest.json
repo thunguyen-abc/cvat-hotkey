@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "CVAT Event Hotkeys",
-  "version": "1.6.1",
+  "version": "1.6.2",
   "description": "Adds CVAT event shortcuts, job actions, and a GitHub release update checker.",
-  "permissions": ["alarms"],
+  "permissions": ["alarms", "nativeMessaging"],
   "host_permissions": ["https://api.github.com/*"],
   "background": {
     "service_worker": "updates.js"

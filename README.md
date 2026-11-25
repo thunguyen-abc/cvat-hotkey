@@ -68,7 +68,9 @@ Chrome không tự cập nhật extension cài bằng **Load unpacked**. Thư m�
    - **2. Hỏi trước** (mặc định): hiện hộp thoại Windows, chỉ cài khi bạn bấm **Yes**. Nếu bấm **No**, lần kiểm tra sau sẽ hỏi lại.
 4. Gõ `y` để đồng ý. Trình cập nhật tạo lịch chạy mỗi khi đăng nhập Windows và mỗi 3 giờ, rồi kiểm tra ngay một lần.
 
-Sau khi cài file mới, extension tự kích hoạt bản mới trong khoảng 1 phút, hoặc ngay khi bạn mở cửa sổ extension. Bạn không cần bấm **Reload** trong `chrome://extensions`. Tải lại tab CVAT đang mở để dùng bản mới. Annotation chưa lưu trong tab không bị ảnh hưởng.
+Từ đó, khi có bản mới, mở biểu tượng **CVAT Event Hotkeys** trong Chrome và bấm **Cập nhật ngay**. Trình cập nhật tải, kiểm tra và cài bản mới, rồi extension tự kích hoạt. Không mở GitHub, không giải nén, không bấm Reload. Thường mất vài giây; có thể đóng cửa sổ trong lúc cài. Ngoài nút này, trình cập nhật vẫn tự kiểm tra theo lịch.
+
+Sau khi cài file mới (bằng nút hoặc theo lịch), extension tự kích hoạt bản mới trong khoảng 1 phút, hoặc ngay khi bạn mở cửa sổ extension. Bạn không cần bấm **Reload** trong `chrome://extensions`. Tải lại tab CVAT đang mở để dùng bản mới. Annotation chưa lưu trong tab không bị ảnh hưởng.
 
 Ở cả hai chế độ, trình cập nhật luôn hỏi lại nếu bản mới xin thêm quyền Chrome hoặc thêm trang web. Trình cập nhật không cần quyền Administrator.
 
@@ -86,7 +88,7 @@ Chi tiết cách hoạt động, kiểm tra bảo mật và xử lý lỗi: [doc
 
 ## Cập nhật thủ công
 
-Mở biểu tượng **CVAT Event Hotkeys** trong Chrome. Extension kiểm tra [GitHub Releases](https://github.com/thunguyen-abc/cvat-hotkey/releases/latest) khi mở cửa sổ này và định kỳ mỗi sáu giờ. Khi có bản mới, biểu tượng hiện **NEW** và nút **Update** tải ZIP phát hành. Giải nén đè vào thư mục đang dùng, bấm **Reload** trong `chrome://extensions`, rồi tải lại CVAT. Cửa sổ này cũng cho biết máy đã cài trình cập nhật tự động chưa và lần kiểm tra cuối.
+Mở biểu tượng **CVAT Event Hotkeys** trong Chrome. Extension kiểm tra [GitHub Releases](https://github.com/thunguyen-abc/cvat-hotkey/releases/latest) khi mở cửa sổ này và định kỳ mỗi sáu giờ. Khi có bản mới, biểu tượng hiện **NEW**. Nếu máy đã cài trình cập nhật, cửa sổ hiện nút **Cập nhật ngay** (xem mục trên). Nếu chưa, nút **Update** tải ZIP phát hành: giải nén đè vào thư mục đang dùng, bấm **Reload** trong `chrome://extensions`, rồi tải lại CVAT. Cửa sổ này cũng cho biết máy đã cài trình cập nhật tự động chưa và lần kiểm tra cuối.
 
 ## Phát hành phiên bản mới
 

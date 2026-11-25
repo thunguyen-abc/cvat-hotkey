@@ -315,8 +315,12 @@ def main():
             browser.close()
     finally:
         proc.kill()
-        time.sleep(0.5)
-        shutil.rmtree(profile, ignore_errors=True)
+        proc.wait(timeout=10)
+        for _ in range(10):  # Chromium child processes may still hold profile files for a moment
+            shutil.rmtree(profile, ignore_errors=True)
+            if not os.path.exists(profile):
+                break
+            time.sleep(0.5)
 
     print()
     print('FAILED: ' + str(len(failures)) if failures else 'ALL CHECKS PASSED')
