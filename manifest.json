@@ -1,8 +1,17 @@
 {
   "manifest_version": 3,
   "name": "CVAT Event Hotkeys",
-  "version": "1.3.1",
-  "description": "Adds CVAT event shortcuts, Complete & Next, and Clear All Tags for the current job.",
+  "version": "1.4.0",
+  "description": "Adds CVAT event shortcuts, job actions, and a GitHub release update checker.",
+  "permissions": ["alarms"],
+  "host_permissions": ["https://api.github.com/*"],
+  "background": {
+    "service_worker": "updates.js"
+  },
+  "action": {
+    "default_title": "CVAT Event Hotkeys",
+    "default_popup": "update.html"
+  },
   "content_scripts": [
     {
       "matches": ["https://cvat-tai.abcstudio.online/*"],

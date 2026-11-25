@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="vi">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CVAT Event Hotkeys</title>
+<style>
+  body { min-width: 264px; padding: 14px; margin: 0; color: #172622; font: 14px system-ui, sans-serif; }
+  h1 { margin: 0 0 6px; font-size: 16px; }
+  p { margin: 8px 0; line-height: 1.45; }
+  #installed { color: #4e615a; font-size: 12px; }
+  button, #update { padding: 6px 10px; font: inherit; border-radius: 5px; }
+  button { border: 1px solid #a2b2ab; background: white; color: inherit; cursor: pointer; }
+  #update { background: #146c43; color: white; text-decoration: none; font-weight: 600; }
+  #update:not([hidden]) { display: inline-block; }
+  #install-help { font-size: 12px; }
+</style>
+<h1>CVAT Event Hotkeys</h1>
+<p id="installed"></p>
+<p id="status" role="status">Đang kiểm tra bản mới…</p>
+<a id="update" hidden target="_blank" rel="noopener noreferrer">Update</a>
+<button type="button" id="retry" hidden>Kiểm tra lại</button>
+<p id="install-help" hidden>Giải nén ZIP đè vào thư mục extension, bấm Reload trong chrome://extensions, rồi tải lại tab CVAT.</p>
+<script src="update.js"></script>
+</html>

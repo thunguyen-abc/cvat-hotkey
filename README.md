@@ -28,4 +28,10 @@ Bấm **Clear All Tags** để xem số tag đã lưu. Bấm **Xóa toàn bộ t
 
 Nếu đã cài bản cũ, thay các file trong thư mục extension bằng bản mới, bấm **Reload** trên thẻ extension trong `chrome://extensions`, rồi tải lại tab CVAT.
 
+## Cập nhật từ GitHub
+
+Mở biểu tượng **CVAT Event Hotkeys** trong Chrome. Extension kiểm tra [GitHub Releases](https://github.com/thunguyen-abc/cvat-event-hotkeys/releases/latest) khi mở cửa sổ này và định kỳ mỗi sáu giờ. Khi có bản mới, biểu tượng hiện **NEW** và nút **Update** tải ZIP phát hành. Giải nén đè vào thư mục đang dùng, bấm **Reload** trong `chrome://extensions`, rồi tải lại CVAT. Chrome yêu cầu bước này với bản **Load unpacked**.
+
+Khi phát hành, GitHub release cần có tag dạng `v1.4.0` và file đính kèm cùng phiên bản dạng `cvat-event-hotkeys-v1.4.0.zip`.
+
 Extension dùng giao diện CVAT để gắn, gỡ và lưu annotation khi bạn thao tác. Nút Complete & Next sử dụng phiên đăng nhập hiện tại để đọc thông tin tài khoản và danh sách job từ API trên cùng tên miền CVAT.
