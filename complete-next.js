@@ -176,6 +176,7 @@
     confirm.type = 'button';
     confirm.className = 'ant-btn ant-btn-primary ant-btn-dangerous';
     confirm.textContent = 'Xóa toàn bộ tag';
+    confirm.classList.add('cvat-event-danger');
     confirm.disabled = true;
     actions.append(cancel, confirm);
     dialog.append(title, detail, actions);
@@ -291,6 +292,7 @@
     button.type = 'button';
     button.className = 'ant-btn ant-btn-default ant-btn-sm';
     button.textContent = 'Complete & Next';
+    button.classList.add('cvat-event-primary');
     button.setAttribute('aria-describedby', 'cvat-event-complete-status');
     const status = document.createElement('span');
     status.id = 'cvat-event-complete-status';

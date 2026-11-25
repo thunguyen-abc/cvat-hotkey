@@ -58,6 +58,11 @@ function attachCVATRangeEditor(control, slider, anchor, api) {
   const start = button('Start');
   const end = button('End');
   const edit = button('Edit');
+  group.setAttribute('role', 'group');
+  group.setAttribute('aria-label', 'Chọn khoảng frame');
+  start.title = 'Đặt frame hiện tại làm mốc đầu';
+  end.title = 'Đặt frame hiện tại làm mốc cuối';
+  edit.classList.add('cvat-event-primary');
   group.append(start, end, edit);
   anchor.append(group);
   const band = element('div', undefined, 'cvat-range-band');
@@ -72,6 +77,9 @@ function attachCVATRangeEditor(control, slider, anchor, api) {
     const valid = (value) => Number.isInteger(value) && value >= min && value <= max;
     const points = [marks.start, marks.end].filter(valid);
     edit.disabled = points.length !== 2;
+    edit.title = edit.disabled ? 'Chọn cả Start và End để chỉnh tag' : 'Chỉnh tag trong khoảng đã chọn';
+    start.dataset.marked = String(valid(marks.start));
+    end.dataset.marked = String(valid(marks.end));
     start.textContent = valid(marks.start) ? 'Start ' + marks.start : 'Start';
     end.textContent = valid(marks.end) ? 'End ' + marks.end : 'End';
     band.hidden = !points.length;
@@ -108,7 +116,11 @@ function attachCVATRangeEditor(control, slider, anchor, api) {
   function openEditor(low, high) {
     const dialog = element('dialog', undefined, 'cvat-event-clear-dialog cvat-range-dialog');
     dialog.setAttribute('aria-label', 'Chỉnh tag trong khoảng frame');
-    const title = element('h2', 'Chỉnh tag · frame ' + low + ' – ' + high);
+    const heading = element('header', undefined, 'cvat-range-heading');
+    const title = element('h2', 'Chỉnh tag theo khoảng');
+    const range = element('span', 'Frame ' + low + ' → ' + high, 'cvat-range-summary');
+    const length = element('span', (high - low + 1) + ' frame');
+    heading.append(title, range, length);
     const mode = element('select');
     for (const [value, name] of [['add','Thêm tag'], ['replace','Đổi tag'], ['remove','Xóa tag đã chọn'], ['all','Xóa toàn bộ tag trong khoảng']]) {
       mode.add(new Option(name, value));
@@ -125,10 +137,11 @@ function attachCVATRangeEditor(control, slider, anchor, api) {
     info.setAttribute('role', 'status');
     const cancel = button('Hủy');
     const apply = button('Áp dụng');
+    apply.classList.add('cvat-event-primary');
     apply.disabled = true;
     const actions = element('div', undefined, 'cvat-event-clear-actions');
     actions.append(cancel, apply);
-    dialog.append(title, modeField, sourceField, targetField, info, actions);
+    dialog.append(heading, modeField, sourceField, targetField, info, actions);
     document.body.append(dialog);
     dialog.showModal();
     let busy = false;
@@ -172,11 +185,18 @@ function attachCVATRangeEditor(control, slider, anchor, api) {
         present.set(tag.label_id, (present.get(tag.label_id) || 0) + 1);
       }
       const selectable = ['remove', 'replace'].includes(mode.value);
+      sourceField.querySelector('legend').textContent = mode.value === 'remove' ? 'Chọn tag cần xóa'
+        : mode.value === 'replace' ? 'Chọn tag cần đổi' : 'Tag hiện có trong khoảng';
+      dialog.dataset.operation = mode.value;
+      apply.classList.toggle('cvat-event-danger', ['all', 'remove'].includes(mode.value));
       targetField.hidden = !['add', 'replace'].includes(mode.value);
       chips.replaceChildren();
       if (!present.size) chips.append(element('span', 'Chưa có tag'));
       for (const [id, count] of present) {
-        const chip = button((labels.find((label) => label.id === id)?.name ?? '#' + id) + ' · ' + count);
+        const name = labels.find((label) => label.id === id)?.name ?? '#' + id;
+        const chip = button(name);
+        chip.append(element('span', String(count), 'cvat-range-count'));
+        chip.setAttribute('aria-label', name + ' · ' + count);
         chip.disabled = !selectable;
         chip.setAttribute('aria-pressed', String(selected.has(id)));
         chip.onclick = () => {
@@ -185,8 +205,12 @@ function attachCVATRangeEditor(control, slider, anchor, api) {
             if (mode.value === 'replace') selected.clear();
             selected.add(id);
           }
-          display();
+          for (const node of chips.children) {
+            node.setAttribute('aria-pressed', String(selected.has(Number(node.dataset.labelId))));
+          }
+          preview();
         };
+        chip.dataset.labelId = id;
         chips.append(chip);
       }
       preview();
