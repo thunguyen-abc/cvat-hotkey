@@ -1,11 +1,8 @@
 (() => {
   'use strict';
 
-  const labelsByKey = new Map([
-    ['1', 'event_smoke'],
-    ['2', 'event_drinking'],
-    ['3', 'event_phone'],
-  ]);
+  // CVAT_EVENT_LABELS comes from range-plan.js: slot 1/2/3 -> event label.
+  const labelsByKey = new Map(CVAT_EVENT_LABELS.map((label, index) => [String(index + 1), label]));
   const panelSelector = '.cvat-tag-annotation-label-selects';
   const configuredPanels = new WeakSet();
   let jobPath = '';

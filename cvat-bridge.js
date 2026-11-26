@@ -11,6 +11,7 @@
   const REQUEST = 'cvat-event-hotkeys:request';
   const RESPONSE = 'cvat-event-hotkeys:response';
   const READY = 'cvat-event-hotkeys:ready';
+  const CHANGED = 'cvat-event-hotkeys:tags-changed';
   let plugin = null;
 
   function register() {
@@ -19,7 +20,8 @@
     if (!ui || typeof ui.registerComponent !== 'function') return false;
     ui.registerComponent((context) => {
       plugin = context;
-      return { name: 'CVAT Event Hotkeys', destructor: () => { plugin = null; } };
+      const unsubscribe = watchAnnotations(context.store);
+      return { name: 'CVAT Event Hotkeys', destructor: () => { unsubscribe(); plugin = null; } };
     });
     document.dispatchEvent(new CustomEvent(READY));
     return Boolean(plugin);
@@ -59,6 +61,45 @@
   async function readAllTags(job) {
     const data = await job.annotations.export();
     return (data.tags || []).map((tag) => ({ clientID: tag.clientID, frame: tag.frame, labelId: tag.label_id }));
+  }
+
+  // Number of tags in the job, unsaved changes included. CVAT's own statistics (the
+  // Info dialog) count the in-memory collection without serializing it; the export is
+  // the fallback.
+  async function countTags(job) {
+    try {
+      const total = (await job.annotations.statistics())?.total;
+      if (Number.isInteger(total?.tag)) return total.tag;
+    } catch { /* Fall back to the export. */ }
+    return (await readAllTags(job)).length;
+  }
+
+  // CVAT replaces annotation.annotations.history after every annotation action (tag
+  // hotkey, Undo/Redo, our own Apply), never on frame navigation. When it or the job
+  // changes, the content scripts get the job's tag count, so the Clear All Tags button and
+  // the range panel stay current without polling. The store check is a reference compare.
+  function watchAnnotations(store) {
+    let seen = {};
+    let timer = 0;
+    const announce = async (job) => {
+      try {
+        if (store.getState().annotation?.job?.instance !== job) return;
+        const count = await countTags(job);
+        document.dispatchEvent(new CustomEvent(CHANGED, { detail: JSON.stringify({ jobId: job.id, count }) }));
+      } catch { /* The next change announces again. */ }
+    };
+    const check = () => {
+      const annotation = store.getState().annotation;
+      const job = annotation?.job?.instance;
+      const history = annotation?.annotations?.history;
+      if (job === seen.job && history === seen.history) return;
+      seen = { job, history };
+      clearTimeout(timer);
+      if (job) timer = setTimeout(() => { void announce(job); }, 250);
+    };
+    const unsubscribe = typeof store.subscribe === 'function' ? store.subscribe(check) : null;
+    check();
+    return () => { clearTimeout(timer); if (typeof unsubscribe === 'function') unsubscribe(); };
   }
 
   // Per-frame cache for the range editor: frame -> { tags, valid }. Only frames inside a
@@ -119,6 +160,10 @@
 
   function snapshotOf(job, range) {
     return { labels: tagLabels(job), tags: range.tags, addFrames: range.addFrames, key: rangeKey(range.tags), read: range.read };
+  }
+
+  function clearSummary(tags) {
+    return { count: tags.length, frames: new Set(tags.map((tag) => tag.frame)).size, key: rangeKey(tags) };
   }
 
   function tagLabels(job) {
@@ -281,22 +326,33 @@
       return { cleared: true };
     },
 
-    async clearSnapshot({ jobId }) {
+    async tagCount({ jobId }) {
       const { job } = context(jobId);
-      const tags = await readAllTags(job);
-      return { count: tags.length, frames: new Set(tags.map((tag) => tag.frame)).size };
+      return { count: await countTags(job) };
     },
 
-    async clearAll({ jobId, expected }) {
+    async clearSnapshot({ jobId }) {
+      const { job } = context(jobId);
+      return clearSummary(await readAllTags(job));
+    },
+
+    // Same path as applyRange, over the whole job: the live tags are re-read and compared
+    // with the fingerprint the dialog showed, deleted in the browser, the current frame is
+    // refreshed in place (no reload, no request), and the range cache is kept: every cached
+    // frame is still valid, it just has no tags now. CVAT's save uploads the deletions.
+    async clearAll({ jobId, key, expected }) {
       const { state, job } = context(jobId);
       assertIdle(state);
+      const before = frameCache(job);
       const tags = await readAllTags(job);
-      if (tags.length !== expected) return { stale: true, count: tags.length };
+      const summary = clearSummary(tags);
+      if (typeof key === 'string' ? summary.key !== key : tags.length !== expected) return { stale: true, ...summary };
       const tagType = plugin.core.enums.ObjectType.TAG;
       const result = await applyPlan(job, { delete: tags, create: [] },
         async (frame) => (await job.annotations.get(frame, false, [])).filter((item) => item.objectType === tagType));
       await refresh(job);
-      cache = null;
+      const frames = frameCache(job);
+      for (const [frame, entry] of before) frames.set(frame, { tags: [], valid: entry.valid });
       return { ...result, save: saveInfo(job) };
     },
   };

@@ -38,7 +38,17 @@ const cvatEventBridge = (() => {
     try { return (await call('ping', {}, 1500)).ready === true; } catch { return false; }
   }
 
-  return { call, ready };
+  // listener({ jobId, count }) after every annotation change CVAT records (tag hotkeys,
+  // Undo/Redo, Apply, Clear All), until signal aborts.
+  function onTagsChanged(listener, signal) {
+    document.addEventListener('cvat-event-hotkeys:tags-changed', (event) => {
+      let detail;
+      try { detail = JSON.parse(event.detail); } catch { return; }
+      if (Number.isInteger(detail?.jobId) && Number.isInteger(detail.count)) listener(detail);
+    }, { signal });
+  }
+
+  return { call, ready, onTagsChanged };
 })();
 
 // Server GETs made directly by the extension go through one queue per tab: at most one

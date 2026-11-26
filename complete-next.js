@@ -167,7 +167,7 @@
     const { job, menu, button, status, controller } = control;
     const { signal } = controller;
     button.disabled = true;
-    status.textContent = 'Đang kiểm tra người được giao…';
+    control.notify('Đang kiểm tra người được giao…', 'progress');
 
     try {
       const bridged = await cvatEventBridge.ready();
@@ -197,15 +197,16 @@
       if (readJobPath()?.jobId !== job.jobId) return;
       location.assign(next === null ? `/tasks/${job.taskId}` : `/tasks/${job.taskId}/jobs/${next}`);
     } catch (error) {
-      if (!signal.aborted) status.textContent = error.message || 'Không thể hoàn tất và chuyển job.';
+      if (!signal.aborted) control.notify(error.message || 'Không thể hoàn tất và chuyển job.', 'error');
     } finally {
       button.disabled = false;
       control.clearButton.disabled = false;
     }
   }
 
-  // Removes every tag from CVAT's in-memory annotations. Nothing is sent until CVAT saves,
-  // and then only the deleted tags travel, in one request.
+  // Removes every tag from CVAT's in-memory annotations, the same way the range editor's
+  // Apply changes them: the view refreshes in place (no page reload, no request), Start/End
+  // and the panel's queue stay, and CVAT's next save uploads only the deletions.
   function showClearDialog(control) {
     const { job, controller, status } = control;
     const signal = controller.signal;
@@ -233,11 +234,12 @@
     confirm.disabled = true;
     actions.append(cancel, confirm);
     dialog.append(title, detail, actions);
-    control.wrapper.after(dialog);
+    document.body.append(dialog);
     dialog.showModal();
 
     let started = false;
     let expected = 0;
+    let key = null;
     cancel.addEventListener('click', () => dialog.close());
     dialog.addEventListener('keydown', (event) => event.stopPropagation());
     dialog.addEventListener('cancel', (event) => { if (started) event.preventDefault(); });
@@ -250,10 +252,12 @@
       control.clearButton.disabled = false;
     }, { once: true });
 
-    function describe({ count, frames }) {
+    function describe({ count, frames, key: fingerprint }) {
       expected = count;
+      key = typeof fingerprint === 'string' ? fingerprint : null;
+      control.showTagCount(count);
       detail.textContent = count
-        ? `Job có ${count} tag trên ${frames} frame, tính cả thay đổi chưa lưu. Extension xóa chúng trên trình duyệt; CVAT lưu lên server ở lần lưu tiếp theo. Box, shape và track được giữ lại. Trước khi lưu, có thể Undo (Ctrl+Z) hoặc tải lại trang mà không lưu để bỏ thay đổi.`
+        ? `Job có ${count} tag trên ${frames} frame, tính cả thay đổi chưa lưu. Extension xóa chúng ngay trên trình duyệt như khi Áp dụng chỉnh theo khoảng: trang không tải lại, frame, Start/End và các thao tác đang xếp được giữ. Box, shape và track được giữ lại. CVAT lưu lên server ở lần lưu tiếp theo; trước đó có thể Undo (Ctrl+Z).`
         : 'Job này không có tag nào.';
       confirm.disabled = !count;
     }
@@ -274,16 +278,16 @@
       cancel.disabled = true;
       detail.textContent = `Đang xóa ${expected} tag trên trình duyệt…`;
       try {
-        const result = await cvatEventBridge.call('clearAll', { jobId: job.jobId, expected }, 180000);
+        const result = await cvatEventBridge.call('clearAll', { jobId: job.jobId, key, expected }, 180000);
         started = false;
         cancel.disabled = false;
         if (result.stale) {
-          detail.textContent = `Số tag vừa thay đổi thành ${result.count}. Kiểm tra lại rồi bấm Xóa.`;
-          expected = result.count;
-          confirm.disabled = !result.count;
+          describe(result);
+          detail.textContent = `Tag của job vừa thay đổi: hiện có ${result.count} tag. Kiểm tra lại rồi bấm Xóa.`;
           return;
         }
-        status.textContent = `Đã xóa ${result.removed} tag. ${describeCVATSave(result.save)}`;
+        control.showTagCount(0);
+        control.notify(`Đã xóa ${result.removed} tag. ${describeCVATSave(result.save)}`);
         dialog.close();
       } catch (error) {
         if (signal.aborted) return;
@@ -324,19 +328,67 @@
     button.textContent = 'Complete & Next';
     button.classList.add('cvat-event-primary');
     button.setAttribute('aria-describedby', 'cvat-event-complete-status');
+    // Message box under the buttons: the text plus a × to hide it, so it never has to
+    // stay over the tags. Results hide themselves after a few seconds; errors stay until ×.
+    const statusBox = document.createElement('span');
+    statusBox.className = 'cvat-event-complete-status';
     const status = document.createElement('span');
     status.id = 'cvat-event-complete-status';
     status.setAttribute('role', 'status');
-    status.className = 'cvat-event-complete-status';
+    const hide = document.createElement('button');
+    hide.type = 'button';
+    hide.className = 'cvat-event-status-close';
+    hide.textContent = '×';
+    hide.title = 'Ẩn thông báo';
+    hide.setAttribute('aria-label', 'Ẩn thông báo');
+    statusBox.append(status, hide);
+    let hideTimer = 0;
+    const notify = (text, kind = 'info') => {
+      clearTimeout(hideTimer);
+      statusBox.dataset.kind = kind;
+      status.textContent = text;
+      if (text && kind === 'info') {
+        hideTimer = setTimeout(() => { if (status.textContent === text) status.textContent = ''; }, 8000);
+      }
+    };
+    hide.addEventListener('click', () => {
+      clearTimeout(hideTimer);
+      status.textContent = '';
+    });
     const clearButton = document.createElement('button');
     clearButton.type = 'button';
     clearButton.className = 'ant-btn ant-btn-default ant-btn-sm ant-btn-dangerous';
-    clearButton.textContent = 'Clear All Tags';
     clearButton.setAttribute('aria-describedby', 'cvat-event-complete-status');
-    wrapper.append(button, clearButton, status);
+    // The job's tag count, unsaved changes included, kept current by the bridge after
+    // every annotation change. Hidden until the first count arrives.
+    const clearCount = document.createElement('span');
+    clearCount.className = 'cvat-clear-count';
+    clearCount.hidden = true;
+    clearButton.append('Clear All Tags', clearCount);
+    const showTagCount = (count) => {
+      if (!Number.isInteger(count)) return;
+      clearCount.hidden = false;
+      clearCount.textContent = String(count);
+      clearCount.dataset.empty = String(count === 0);
+      clearButton.title = `Job có ${count} tag, tính cả thay đổi chưa lưu`;
+      clearButton.setAttribute('aria-label', `Clear All Tags (${count} tag)`);
+    };
+    wrapper.append(button, clearButton, statusBox);
     menu.after(wrapper);
-    controls = { job, menu, wrapper, button, clearButton, status, controller: new AbortController() };
+    controls = { job, menu, wrapper, button, clearButton, status, notify, showTagCount, controller: new AbortController() };
     const control = controls;
+    const { signal } = control.controller;
+    cvatEventBridge.onTagsChanged(({ jobId, count }) => { if (jobId === job.jobId) showTagCount(count); }, signal);
+    // First count: the bridge may register, or the job finish loading, after this mounts.
+    void (async () => {
+      for (let attempt = 0; attempt < 40 && !signal.aborted; attempt += 1) {
+        try {
+          const { count } = await cvatEventBridge.call('tagCount', { jobId: job.jobId }, 1500);
+          if (!signal.aborted && clearCount.hidden) showTagCount(count);
+          return;
+        } catch { await pause(1000); }
+      }
+    })();
     button.addEventListener('click', () => {
       if (button.disabled) return;
       clearButton.disabled = true;

@@ -37,14 +37,14 @@ function test(name, fn) {
 
 test('add skips frames that already have the tag and frames that cannot take one', () => {
   const tags = [tag(1, SMOKE), tag(2, DRINK)];
-  const result = plan({ tags, low: 0, high: 4, addFrames: [0, 1, 2, 4], operations: [{ mode: 'add', targetId: SMOKE }] });
+  const result = plan({ tags, low: 0, high: 4, addFrames: [0, 1, 2, 4], operations: [{ mode: 'add', targets: [SMOKE] }] });
   assert.deepEqual(result.create.map((item) => item.frame), [0, 2, 4]);
   assert.deepEqual(result.counts, { add: 3, replace: 0, remove: 0 });
 });
 
 test('replace keeps an existing destination and removes the source there', () => {
   const tags = [tag(0, SMOKE), tag(1, SMOKE), tag(1, PHONE)];
-  const result = plan({ tags, low: 0, high: 1, operations: [{ mode: 'replace', sources: [SMOKE], targetId: PHONE }] });
+  const result = plan({ tags, low: 0, high: 1, operations: [{ mode: 'replace', sources: [SMOKE], targets: [PHONE] }] });
   assert.deepEqual(result.counts, { add: 0, replace: 1, remove: 1 });
   const after = apply(tags, result);
   assert.deepEqual(labelsOn(after, 0), [PHONE]);
@@ -57,8 +57,8 @@ test('several operations: remove + add + replace in one plan', () => {
     tags, low: 0, high: 3, addFrames: frames(0, 3),
     operations: [
       { mode: 'remove', sources: [DRINK] },
-      { mode: 'replace', sources: [PHONE], targetId: DRINK },
-      { mode: 'add', targetId: SMOKE },
+      { mode: 'replace', sources: [PHONE], targets: [DRINK] },
+      { mode: 'add', targets: [SMOKE] },
     ],
   });
   assert.equal(result.complete, true);
@@ -73,7 +73,7 @@ test('removing and adding the same tag back changes nothing on frames that had i
   const tags = [tag(0, SMOKE), tag(2, SMOKE)];
   const result = plan({
     tags, low: 0, high: 2, addFrames: frames(0, 2),
-    operations: [{ mode: 'remove', sources: [SMOKE] }, { mode: 'add', targetId: SMOKE }],
+    operations: [{ mode: 'remove', sources: [SMOKE] }, { mode: 'add', targets: [SMOKE] }],
   });
   assert.deepEqual(result.delete, []);
   assert.deepEqual(result.create.map((item) => item.frame), [1]);
@@ -84,7 +84,7 @@ test('replace then remove the destination removes both', () => {
   const tags = [tag(0, SMOKE), tag(1, PHONE)];
   const result = plan({
     tags, low: 0, high: 1,
-    operations: [{ mode: 'replace', sources: [SMOKE], targetId: PHONE }, { mode: 'remove', sources: [PHONE] }],
+    operations: [{ mode: 'replace', sources: [SMOKE], targets: [PHONE] }, { mode: 'remove', sources: [PHONE] }],
   });
   assert.deepEqual(result.create, []);
   assert.deepEqual(result.counts, { add: 0, replace: 0, remove: 2 });
@@ -94,7 +94,7 @@ test('a source removed by an earlier operation blocks Apply instead of being ign
   const tags = [tag(0, SMOKE)];
   const result = plan({
     tags, low: 0, high: 0,
-    operations: [{ mode: 'remove', sources: [SMOKE] }, { mode: 'replace', sources: [SMOKE], targetId: PHONE }],
+    operations: [{ mode: 'remove', sources: [SMOKE] }, { mode: 'replace', sources: [SMOKE], targets: [PHONE] }],
   });
   assert.equal(result.complete, false);
   assert.equal(result.steps[0].problem, null);
@@ -103,14 +103,14 @@ test('a source removed by an earlier operation blocks Apply instead of being ign
 
 test('missing target and same source/target are reported', () => {
   const tags = [tag(0, SMOKE)];
-  assert.match(plan({ tags, low: 0, high: 0, operations: [{ mode: 'add', targetId: null }] }).steps[0].problem, /đích/);
-  assert.match(plan({ tags, low: 0, high: 0, operations: [{ mode: 'replace', sources: [SMOKE], targetId: SMOKE }] })
+  assert.match(plan({ tags, low: 0, high: 0, operations: [{ mode: 'add', targets: [] }] }).steps[0].problem, /cần thêm/);
+  assert.match(plan({ tags, low: 0, high: 0, operations: [{ mode: 'replace', sources: [SMOKE], targets: [SMOKE] }] })
     .steps[0].problem, /khác nhau/);
 });
 
 test('frames outside the range are never touched', () => {
   const tags = [tag(0, SMOKE), tag(5, SMOKE), tag(9, DRINK)];
-  const result = plan({ tags, low: 4, high: 6, addFrames: frames(0, 9), operations: [{ mode: 'all' }, { mode: 'add', targetId: PHONE }] });
+  const result = plan({ tags, low: 4, high: 6, addFrames: frames(0, 9), operations: [{ mode: 'all' }, { mode: 'add', targets: [PHONE] }] });
   assert.deepEqual(result.delete.map((item) => item.frame), [5]);
   assert.deepEqual(result.create.map((item) => item.frame), [4, 5, 6]);
 });
@@ -119,9 +119,24 @@ test('no duplicates even when two operations add the same tag', () => {
   const tags = [];
   const result = plan({
     tags, low: 0, high: 1, addFrames: frames(0, 1),
-    operations: [{ mode: 'add', targetId: SMOKE }, { mode: 'add', targetId: SMOKE }],
+    operations: [{ mode: 'add', targets: [SMOKE] }, { mode: 'add', targets: [SMOKE] }],
   });
   assert.equal(result.create.length, 2);
+});
+
+test('one add operation can add several events', () => {
+  const tags = [tag(0, SMOKE)];
+  const result = plan({ tags, low: 0, high: 1, addFrames: frames(0, 1), operations: [{ mode: 'add', targets: [SMOKE, PHONE] }] });
+  const after = apply(tags, result);
+  assert.deepEqual(labelsOn(after, 0), [SMOKE, PHONE]);
+  assert.deepEqual(labelsOn(after, 1), [SMOKE, PHONE]);
+  assert.deepEqual(result.counts, { add: 3, replace: 0, remove: 0 });
+});
+
+test('replace needs exactly one target', () => {
+  const tags = [tag(0, SMOKE)];
+  assert.match(plan({ tags, low: 0, high: 0, operations: [{ mode: 'replace', sources: [SMOKE], targets: [DRINK, PHONE] }] })
+    .steps[0].problem, /một event/);
 });
 
 console.log(`\n${passed} planner tests passed`);

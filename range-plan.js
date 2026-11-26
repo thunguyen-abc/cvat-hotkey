@@ -6,17 +6,21 @@
 // tags:       [{ clientID, frame, labelId }] in the range, as held by CVAT in the browser
 // low, high:  inclusive frame range
 // addFrames:  frames that may receive a new tag (not deleted, inside the job's frame filter)
-// operations: [{ mode, sources, targetId }] applied top to bottom; each one sees the result
+// operations: [{ mode, sources, targets }] applied top to bottom; each one sees the result
 //             of the ones above it.
-//   mode 'add'     adds targetId to every frame in addFrames that lacks it
-//   mode 'replace' turns the selected source label (one) into targetId; where the frame
-//                  already has targetId, the source tag is removed instead
+//   mode 'add'     adds each label in targets to every frame in addFrames that lacks it
+//   mode 'replace' turns the selected source label (one) into targets[0] (exactly one);
+//                  where the frame already has that label, the source tag is removed instead
 //   mode 'remove'  removes the selected source labels
 //   mode 'all'     removes every tag in the range
 //
 // An operation whose source label no longer exists after the operations above it, or that
 // lacks a target, is reported as invalid and blocks Apply: conflicts are never resolved
 // silently. Existing tags are never duplicated.
+
+// The three event labels, in slot order 1/2/3. Shared by hotkeys.js (CVAT's tag slots) and
+// the range editor (its three event buttons).
+const CVAT_EVENT_LABELS = Object.freeze(['event_smoke', 'event_drinking', 'event_phone']);
 
 function countCVATLabels(tags) {
   const present = new Map();
@@ -26,30 +30,37 @@ function countCVATLabels(tags) {
 
 function checkCVATOperation(op, present) {
   const sources = op.sources || [];
-  if (['add', 'replace'].includes(op.mode) && op.targetId == null) return 'Chọn tag đích.';
+  const targets = op.targets || [];
+  if (op.mode === 'add' && !targets.length) return 'Chọn event cần thêm.';
+  if (op.mode === 'replace' && targets.length !== 1) return 'Chọn một event đích.';
   if (['replace', 'remove'].includes(op.mode)) {
     if (!sources.length) return op.mode === 'replace' ? 'Chọn tag cần đổi.' : 'Chọn tag cần xóa.';
     if (!sources.every((id) => present.has(id))) return 'Tag đã chọn không còn sau các thao tác phía trên.';
   }
-  if (op.mode === 'replace' && sources.includes(op.targetId)) return 'Tag nguồn và tag đích phải khác nhau.';
+  if (op.mode === 'replace' && sources.includes(targets[0])) return 'Tag nguồn và tag đích phải khác nhau.';
   return null;
 }
 
 function projectCVATOperation(tags, op, addFrames, temporaryId) {
   const selected = new Set(op.sources || []);
-  const hasTarget = new Set(tags.filter((tag) => tag.labelId === op.targetId).map((tag) => tag.frame));
   if (op.mode === 'add') {
-    const added = addFrames.filter((frame) => !hasTarget.has(frame))
-      .map((frame) => ({ clientID: temporaryId(), frame, labelId: op.targetId }));
-    return tags.concat(added);
+    let result = tags;
+    for (const labelId of op.targets) {
+      const hasLabel = new Set(result.filter((tag) => tag.labelId === labelId).map((tag) => tag.frame));
+      result = result.concat(addFrames.filter((frame) => !hasLabel.has(frame))
+        .map((frame) => ({ clientID: temporaryId(), frame, labelId })));
+    }
+    return result;
   }
+  const targetId = op.targets?.[0] ?? null;
+  const hasTarget = new Set(tags.filter((tag) => tag.labelId === targetId).map((tag) => tag.frame));
   const result = [];
   for (const tag of tags) {
     if (op.mode === 'all' || (op.mode === 'remove' && selected.has(tag.labelId))) continue;
     if (op.mode === 'replace' && selected.has(tag.labelId)) {
       if (hasTarget.has(tag.frame)) continue;
       hasTarget.add(tag.frame);
-      result.push({ ...tag, labelId: op.targetId });  // same tag, new label: counted as "Đổi"
+      result.push({ ...tag, labelId: targetId });  // same tag, new label: counted as "Đổi"
       continue;
     }
     result.push(tag);
@@ -108,5 +119,5 @@ function planCVATRangeBatch({ tags, low, high, addFrames = [], operations }) {
     steps.push({ present, problem });
     if (!problem) desired = projectCVATOperation(desired, op, frames, temporaryId);
   }
-  return { ...diffCVATRangeTags(original, desired), steps, complete: steps.every((step) => !step.problem) };
+  return { ...diffCVATRangeTags(original, desired), desired, steps, complete: steps.every((step) => !step.problem) };
 }

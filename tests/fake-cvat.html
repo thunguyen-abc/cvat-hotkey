@@ -14,6 +14,7 @@
   .menu, .modal, .success { border: 1px solid #999; padding: 8px; margin: 8px 0; }
 </style>
 <div class="header">
+  <div class="cvat-workspace-selector"><span class="ant-select-selection-item">Tag annotation</span></div>
   <button class="cvat-annotation-header-save-button">Save</button>
   <button class="cvat-annotation-header-menu-button">Menu</button>
 </div>
@@ -36,6 +37,7 @@
     { id: 1, name: 'event_smoke', type: 'tag' },
     { id: 2, name: 'event_drinking', type: 'tag' },
     { id: 3, name: 'event_phone', type: 'any' },
+    { id: 4, name: 'cigarette', type: 'tag' },  // a tag label that is not one of the three events
     { id: 9, name: 'car', type: 'rectangle' },
   ];
   const deletedFrames = new Set([12, 13]);
@@ -43,6 +45,8 @@
   let nextClientID = 1;
   let actionCount = 0;
   let exports = 0;
+  let statistics = 0;
+  const nativeKeys = [];
   const reads = [];
   let nextServerID = 1000;
   function add(type, frame, labelId, serverID) {
@@ -54,6 +58,7 @@
     if (frame % 3 === 0) add('tag', frame, 1, nextServerID++);
     if (frame % 5 === 0) add('tag', frame, 2, nextServerID++);
     if (frame % 10 === 0) add('shape', frame, 9, nextServerID++);
+    if (frame % 7 === 0) add('tag', frame, 4, nextServerID++);
   }
 
   class ObjectState {
@@ -96,6 +101,11 @@
         actionCount += 1;
       },
       hasUnsavedChanges() { return [...objects.values()].some((o) => (o.removed && o.serverID) || (!o.removed && !o.serverID)); },
+      // Like cvat-core: counts of the live in-memory collection, no serialization.
+      async statistics() {
+        statistics += 1;
+        return { label: {}, total: { tag: live().filter((o) => o.type === 'tag').length, manually: 0, interpolated: 0, total: 0 } };
+      },
     },
     frames: {
       async search({ notDeleted }, from, to) {
@@ -129,12 +139,21 @@
       add('tag', frame, labelId, null);
       actionCount += 1;
       state.annotation.annotations.history = await job.actions.get();
+      notify();
     },
     get exports() { return exports; },
+    get statistics() { return statistics; },
+    // Keys that reached CVAT's shortcut handler (Mousetrap on document, bubble phase).
+    nativeKeys,
     // Frames read through job.annotations.get since the last call.
     takeReads() { return reads.splice(0); },
   };
-  const store = { getState: () => state, subscribe() { return () => {}; } };
+  const listeners = new Set();
+  const notify = () => { for (const listener of [...listeners]) listener(); };
+  const store = {
+    getState: () => state,
+    subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
+  };
   const dispatch = (action) => {
     if (typeof action === 'function') return action(dispatch, store.getState);
     if (action.type === 'FETCH_ANNOTATIONS_SUCCESS') {
@@ -142,8 +161,16 @@
       state.annotation.annotations.states = action.payload.states;
       state.annotation.annotations.history = action.payload.history;
     }
+    notify();
     return action;
   };
+  // CVAT's GlobalHotKeys: Mousetrap on document keydown, ignoring text fields. In Tag
+  // annotation, slot keys 1-9 toggle the slot's tag on the current frame.
+  document.addEventListener('keydown', (event) => {
+    if (event.target.closest?.('input, textarea, select')) return;
+    if (['Alt', 'Control', 'Shift', 'Meta'].includes(event.key)) return;
+    nativeKeys.push(event.key);
+  });
   const actionCreators = {
     // Like CVAT: job.save(fields) on the server, then the instance carries the new state.
     updateJobAsync: (instance, fields) => async () => {
