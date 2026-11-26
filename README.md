@@ -15,13 +15,15 @@ Bấm một lần để gắn tag vào frame hiện tại. Bấm lại để g�
 Bảng chỉnh nhanh nằm ngay dưới ô số frame khi mở job. **Frame 0/200** là vị trí trong job tính từ 0 trên tổng số frame của job. Chọn frame đầu rồi bấm **Start** (phím `4`), chọn frame cuối rồi bấm **End** (phím `5`). Hai mốc hiển thị số frame của CVAT. Thanh tiến độ tô xanh cả hai đầu của khoảng. Có thể đặt End trước Start.
 
 ```text
-Frame 40/200                      [Nâng cao] [▴]
-[Start 6400] [End 6440] 41 frame
-[event_smoke 12/41] [event_drinking 3/41] [event_phone 0/41]
-[      + Thêm      ] [      − Xóa       ]
-+ event_smoke, event_phone                  [×]
-− event_drinking                            [×]
-Thêm 70 · Xóa 3                       [Áp dụng]
+[Start 6400] [End 6440] 41 frame       Frame 40/200 [Nâng cao] [▴]
+
+[event_smoke 12/41] [event_drinking 3/41] [event_phone 0/41]   [+] [−]
+
+┌ Kết quả ────────────────────────────────────────────────┐
+│ + event_smoke, event_phone                          [×] │
+│ − event_drinking                                    [×] │
+│ Thêm 70 · Xóa 3                               [Áp dụng] │
+└─────────────────────────────────────────────────────────┘
 ```
 
 - Bảng có đúng ba ô event gồm `event_smoke`, `event_drinking` và `event_phone`. Ví dụ, `12/41` nghĩa là 12 trong 41 frame giữa hai mốc có tag đó. Mũi tên `→ 0` cho biết số frame dự kiến sau khi áp dụng hàng đợi. Ô event hiện dấu gạch khi chưa có khoảng và bị khóa nếu job thiếu nhãn.

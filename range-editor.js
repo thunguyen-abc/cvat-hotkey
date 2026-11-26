@@ -50,6 +50,7 @@ function attachCVATRangeEditor(control, slider, anchor) {
   // ---- Panel ---------------------------------------------------------------------------
   const panel = element('section', undefined, 'cvat-range-buttons cvat-quick-panel');
   panel.setAttribute('aria-label', 'Chỉnh tag theo khoảng frame');
+  const top = element('div', undefined, 'cvat-quick-top');
   const head = element('div', undefined, 'cvat-quick-head');
   const frameCounter = element('div', undefined, 'cvat-quick-frame');
   const framePosition = element('strong', '—', 'cvat-quick-frame-position');
@@ -71,6 +72,7 @@ function attachCVATRangeEditor(control, slider, anchor) {
   marks.setAttribute('aria-label', 'Mốc khoảng frame');
   const length = element('span', undefined, 'cvat-quick-length');
   marks.append(start, end, length);
+  top.append(marks, head);
   const events = element('div', undefined, 'cvat-quick-events');
   events.setAttribute('role', 'group');
   events.setAttribute('aria-label', 'Event cần chỉnh');
@@ -94,11 +96,17 @@ function attachCVATRangeEditor(control, slider, anchor) {
     return { node, count, projection };
   });
   const queueActions = element('div', undefined, 'cvat-quick-actions');
-  const addRow = button('+ Thêm', 'cvat-quick-add');
-  const removeRow = button('− Xóa', 'cvat-quick-remove');
+  const addRow = button('+', 'cvat-quick-add');
+  const removeRow = button('−', 'cvat-quick-remove');
+  addRow.setAttribute('aria-label', 'Thêm các event đã chọn');
+  removeRow.setAttribute('aria-label', 'Xóa các event đã chọn');
   addRow.title = 'Xếp thao tác thêm các event đang chọn (phím =)';
   removeRow.title = 'Xếp thao tác xóa các event đang chọn (phím -)';
   queueActions.append(addRow, removeRow);
+  const results = element('section', undefined, 'cvat-quick-results');
+  const resultsTitle = element('h2', 'Kết quả', 'cvat-quick-results-title');
+  resultsTitle.id = 'cvat-quick-results-' + job.jobId;
+  results.setAttribute('aria-labelledby', resultsTitle.id);
   const queue = element('ol', undefined, 'cvat-quick-queue');
   queue.setAttribute('aria-label', 'Thao tác chờ áp dụng');
   const footer = element('div', undefined, 'cvat-quick-footer');
@@ -107,9 +115,9 @@ function attachCVATRangeEditor(control, slider, anchor) {
   const apply = button('Áp dụng', 'cvat-quick-apply cvat-event-primary');
   apply.title = 'Áp dụng các thao tác đang xếp (Enter)';
   footer.append(info, apply);
-  const hint = element('small', '4 / 5 mốc · Alt+1–3 event · = thêm · - xóa · Enter áp dụng', 'cvat-quick-hint');
-  body.append(events, queueActions, queue, footer, hint);
-  panel.append(head, marks, body);
+  results.append(resultsTitle, queue, footer);
+  body.append(events, queueActions, results);
+  panel.append(top, body);
   anchor.append(panel);
   const band = element('div', undefined, 'cvat-range-band');
   slider.append(band);
@@ -276,7 +284,7 @@ function attachCVATRangeEditor(control, slider, anchor) {
     else if (state.busy) text = 'Đang cập nhật tag trên trình duyệt…';
     else if (!snapshot && loading) text = 'Đang đọc tag…';
     else if (!snapshot) { text = state.error || 'Chưa đọc được tag.'; kind = 'error'; }
-    else if (!state.rows.length) text = 'Chọn event rồi bấm + Thêm hoặc − Xóa.';
+    else if (!state.rows.length) text = 'Chọn event rồi bấm + hoặc −.';
     else {
       text = 'Thêm ' + counts.add + ' · Xóa ' + counts.remove + (counts.replace ? ' · Đổi ' + counts.replace : '');
       if (!result.complete) { text += ' · Sửa dòng báo lỗi.'; kind = 'error'; }

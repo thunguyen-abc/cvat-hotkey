@@ -231,6 +231,7 @@ def main():
             check(frame_position.inner_text() == '0/200', 'a job starting at 6400 starts at position 0/200')
             panel.locator('.cvat-quick-toggle').click()
             check(frame_position.is_visible() and start.is_visible(), 'position and marks stay visible when collapsed')
+            check(not panel.locator('.cvat-quick-results').is_visible(), 'Results collapses with the event controls')
             panel.locator('.cvat-quick-toggle').click()
             page.evaluate("""() => {
                 const handle = document.querySelector('.cvat-player-slider [role="slider"]');
@@ -397,6 +398,19 @@ def main():
 
             print('Quickstart panel')
             mark = server.mark()
+            viewport = page.viewport_size or page.evaluate('({width: innerWidth, height: innerHeight})')
+            for width in (1366, 390, 320):
+                page.set_viewport_size({'width': width, 'height': 768})
+                events_box = panel.locator('.cvat-quick-events').bounding_box()
+                actions_box = panel.locator('.cvat-quick-actions').bounding_box()
+                results_box = panel.get_by_role('region', name='Kết quả').bounding_box()
+                check(actions_box['x'] > events_box['x'] + events_box['width'] and
+                      abs(actions_box['y'] - events_box['y']) < 1 and
+                      results_box['y'] > events_box['y'] + events_box['height'] and
+                      abs(results_box['x'] - events_box['x']) < 1 and
+                      abs(results_box['width'] - events_box['width']) < 1,
+                      f'{width}px: +/− sit beside events and Results aligns separately underneath')
+            page.set_viewport_size(viewport)
             names = panel.locator('.cvat-quick-event-name').all_inner_texts()
             check(names == list(EVENTS), f'exactly the three event boxes {names}')
             blur(); native()

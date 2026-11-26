@@ -9,7 +9,7 @@
   line-height: 1.45;
 }
 
-.cvat-event-complete-next, .cvat-range-buttons, .cvat-event-clear-actions {
+.cvat-event-complete-next, .cvat-event-clear-actions {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -75,12 +75,6 @@
   top: calc(100% + 7px);
   right: 0;
   z-index: 8;
-  gap: 5px;
-  padding: 5px;
-  border: 1px solid #bbc7cf;
-  border-radius: 10px;
-  background: #fff;
-  box-shadow: 0 3px 10px #182b3b26;
 }
 .cvat-range-buttons button { min-width: 58px; font-variant-numeric: tabular-nums; }
 .cvat-range-buttons button[data-marked="true"] {
@@ -202,37 +196,39 @@ dialog.cvat-event-clear-dialog {
 .cvat-clear-count[hidden] { display: none; }
 .cvat-event-complete-next button.ant-btn:disabled .cvat-clear-count { background: #dde3e7; color: #687783; }
 
-/* Quickstart panel under the frame number. */
+/* Quickstart keeps the marks, event controls and results in separate blocks. */
 .cvat-range-buttons.cvat-quick-panel {
   --smoke: #8a5300;
   --drinking: #1c5ea6;
   --phone: #74399c;
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 9px;
+  display: grid;
+  gap: 12px;
   box-sizing: border-box;
-  width: min(368px, calc(100vw - 16px));
-  padding: 10px;
-  border-color: #c2ccd4;
-  border-radius: 12px;
-  box-shadow: 0 8px 24px #182b3b29, 0 1px 2px #182b3b1a;
+  width: min(510px, calc(100vw - 16px));
+  pointer-events: none;
   font-size: 13px;
 }
 .cvat-quick-panel [hidden] { display: none !important; }
-.cvat-quick-head { display: flex; align-items: center; gap: 6px; }
+.cvat-quick-top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px 12px; }
+.cvat-quick-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.cvat-quick-panel button { pointer-events: auto; }
 .cvat-quick-frame {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: 0 7px;
   min-width: 0;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #fff;
   color: var(--muted);
   font-size: 12px;
+  pointer-events: auto;
 }
 .cvat-quick-frame-position {
   color: var(--ink);
-  font-size: 20px;
+  font-size: 16px;
   font-variant-numeric: tabular-nums;
   line-height: 1.2;
 }
@@ -241,15 +237,22 @@ dialog.cvat-event-clear-dialog {
 .cvat-range-buttons button.cvat-quick-advanced { margin-left: auto; min-width: 0; }
 .cvat-range-buttons button.cvat-quick-toggle { min-width: 32px; width: 32px; padding: 0; color: var(--muted); }
 .cvat-quick-marks { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.cvat-range-buttons .cvat-quick-marks button { flex: 1; min-height: 32px; }
+.cvat-range-buttons .cvat-quick-marks button { min-height: 34px; }
 .cvat-quick-length {
-  padding: 0 4px;
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: #fff;
   color: var(--muted);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.cvat-quick-body { display: flex; flex-direction: column; gap: 9px; }
+.cvat-quick-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+}
 
 .cvat-quick-events { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
 .cvat-range-buttons button.cvat-quick-event {
@@ -294,10 +297,24 @@ dialog.cvat-event-clear-dialog {
 .cvat-range-buttons button.cvat-quick-event[aria-pressed="true"]:disabled { opacity: .72; }
 .cvat-range-buttons button.cvat-quick-event[data-missing="true"] { border-style: dashed; text-decoration: line-through; }
 
-.cvat-quick-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.cvat-quick-actions { display: flex; align-self: stretch; gap: 6px; }
+.cvat-range-buttons .cvat-quick-actions button { min-width: 49px; padding: 0; font-size: 23px; }
 .cvat-range-buttons button.cvat-quick-add:enabled { color: var(--accent); border-color: #84b9aa; background: #eff8f5; }
 .cvat-range-buttons button.cvat-quick-remove:enabled { color: var(--danger); border-color: #d8a2a8; background: #fdf3f4; }
 
+.cvat-quick-results {
+  display: grid;
+  grid-column: 1;
+  gap: 8px;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+  box-shadow: 0 4px 12px #182b3b25;
+  pointer-events: auto;
+}
+.cvat-quick-results .cvat-quick-results-title { margin: 0; color: var(--ink); font-size: 13px; font-weight: 700; }
 .cvat-quick-queue {
   display: flex;
   flex-direction: column;
@@ -344,19 +361,24 @@ dialog.cvat-event-clear-dialog {
 .cvat-range-buttons button.cvat-quick-drop:hover:enabled { background: #e7ecef; }
 .cvat-quick-problem { grid-column: 2 / -1; color: #902334; font-size: 12px; }
 
-.cvat-quick-footer { display: flex; align-items: center; gap: 8px; padding-top: 8px; border-top: 1px solid #e1e7eb; }
+.cvat-quick-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 8px; border-top: 1px solid #e1e7eb; }
 .cvat-quick-info { flex: 1; min-width: 0; color: var(--muted); font-variant-numeric: tabular-nums; }
 .cvat-quick-info[data-kind="error"] { color: #902334; }
 .cvat-quick-info[data-kind="done"] { color: #16584c; }
-.cvat-range-buttons button.cvat-quick-apply { min-width: 86px; }
+.cvat-range-buttons button.cvat-quick-apply { min-width: 86px; margin-inline-start: auto; }
 .cvat-range-buttons button.cvat-quick-apply.cvat-event-danger:enabled { background: var(--danger); border-color: var(--danger); }
-.cvat-quick-hint { color: #6a7a86; font-size: 11.5px; }
 @media (max-width: 600px) {
   .cvat-range-buttons.cvat-quick-panel {
-    width: min(368px, calc(100% - 16px));
+    width: min(510px, calc(100% - 16px));
     max-height: calc(100dvh - 24px);
     overflow-y: auto;
   }
+  .cvat-range-buttons .cvat-quick-actions button { min-width: 36px; }
+}
+@media (max-width: 375px) {
+  .cvat-range-buttons button.cvat-quick-event { padding-inline: 4px; }
+  .cvat-quick-footer { align-items: flex-start; }
+  .cvat-quick-info { flex-basis: 100%; }
 }
 
 /* Several operations in one dialog (cards run top to bottom). */
