@@ -12,7 +12,7 @@ Bấm một lần để gắn tag vào frame hiện tại. Bấm lại để g�
 
 ## Chỉnh tag theo khoảng frame
 
-Bảng chỉnh nhanh nằm ngay dưới ô số frame khi mở job. **Frame 0/200** là vị trí trong job tính từ 0 trên tổng số frame của job. Chọn frame đầu rồi bấm **Start** (phím `4`), chọn frame cuối rồi bấm **End** (phím `5`). Hai mốc hiển thị số frame của CVAT. Thanh tiến độ tô xanh cả hai đầu của khoảng. Có thể đặt End trước Start.
+Bảng chỉnh nhanh nằm ngay dưới ô số frame khi mở job. **Frame 0/200** là vị trí trong job tính từ 0 trên tổng số frame của job. Chọn frame đầu rồi bấm **Start** (phím `4`), chọn frame cuối rồi bấm **End** (phím `5`). Hai mốc hiển thị số frame của CVAT. Thanh tiến độ tô xanh cả hai đầu của khoảng. Có thể đặt End trước Start. Bấm **Select All** cạnh End hoặc nhấn **Ctrl+A** trong Tag annotation để đặt cả hai mốc từ frame đầu đến frame cuối của job. Sau đó chọn event và bấm **Áp dụng** khi sẵn sàng.
 
 ![Quickstart với Smoke được chọn thêm và Drinking được chọn xóa](docs/quickstart/after.png)
 

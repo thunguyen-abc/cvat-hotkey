@@ -51,8 +51,15 @@ function attachCVATRangeEditor(control, slider, anchor) {
   const frameCounter = element('div', undefined, 'cvat-quick-frame');
   const framePosition = element('strong', '—', 'cvat-quick-frame-position');
   frameCounter.append(element('span', 'Frame'), framePosition);
+  const progress = element('span', undefined, 'cvat-quick-progress');
+  progress.setAttribute('aria-hidden', 'true');
+  frameCounter.append(progress);
   const start = button('Start', 'cvat-quick-start');
   const end = button('End', 'cvat-quick-end');
+  const startValue = element('strong');
+  const endValue = element('strong');
+  start.append(startValue);
+  end.append(endValue);
   start.title = 'Đặt frame hiện tại làm mốc đầu (phím 4)';
   end.title = 'Đặt frame hiện tại làm mốc cuối (phím 5)';
   const advanced = button('Nâng cao', 'cvat-quick-advanced');
@@ -67,8 +74,11 @@ function attachCVATRangeEditor(control, slider, anchor) {
   marks.setAttribute('role', 'group');
   marks.setAttribute('aria-label', 'Mốc khoảng frame');
   const length = element('span', undefined, 'cvat-quick-length');
-  marks.append(start, end, length);
-  top.append(marks, head);
+  const selectAll = button('Select All', 'cvat-quick-select-all');
+  selectAll.title = 'Đặt Start và End theo toàn bộ job (Ctrl+A trong Tag annotation)';
+  selectAll.setAttribute('aria-keyshortcuts', 'Control+A');
+  marks.append(start, end, selectAll);
+  top.append(head, marks);
   const events = element('div', undefined, 'cvat-quick-events');
   const eventButtons = [];
   for (const mode of ['add', 'remove']) {
@@ -81,7 +91,7 @@ function attachCVATRangeEditor(control, slider, anchor) {
     sign.setAttribute('aria-hidden', 'true');
     row.append(sign);
     CVAT_EVENT_LABELS.forEach((name, index) => {
-      const node = button(name, 'cvat-quick-event');
+      const node = button(displayCVATLabel(name), 'cvat-quick-event');
       const shortcut = (adding ? 'Alt+' : 'Alt+Shift+') + (index + 1);
       node.translate = false;
       node.dataset.event = name;
@@ -99,7 +109,7 @@ function attachCVATRangeEditor(control, slider, anchor) {
   info.setAttribute('role', 'status');
   const apply = button('Áp dụng', 'cvat-quick-apply');
   apply.title = 'Áp dụng cho khoảng đã đánh dấu (Enter)';
-  footer.append(info, apply);
+  footer.append(length, info, apply);
   body.append(events, footer);
   panel.append(top, body);
   anchor.append(panel);
@@ -158,7 +168,9 @@ function attachCVATRangeEditor(control, slider, anchor) {
     const min = frame('min');
     const max = frame('max');
     const ready = [current, min, max].every(Number.isInteger) && current >= min && current <= max;
+    selectAll.disabled = controlsLocked() || !Number.isInteger(min) || !Number.isInteger(max) || min > max;
     const position = ready ? (current - min) + '/' + (max - min + 1) : '—';
+    progress.style.setProperty('--position', (ready ? 100 * (current - min) / Math.max(1, max - min) : 0) + '%');
     frameCounter.title = ready ? 'Frame ' + current + ' · Vị trí trong job tính từ 0' : '';
     if (framePosition.textContent !== position) framePosition.textContent = position;
   }
@@ -169,8 +181,8 @@ function attachCVATRangeEditor(control, slider, anchor) {
     const points = [state.marks.start, state.marks.end].filter(validMark);
     start.dataset.marked = String(validMark(state.marks.start));
     end.dataset.marked = String(validMark(state.marks.end));
-    start.textContent = validMark(state.marks.start) ? 'Start ' + state.marks.start : 'Start';
-    end.textContent = validMark(state.marks.end) ? 'End ' + state.marks.end : 'End';
+    startValue.textContent = validMark(state.marks.start) ? ' ' + state.marks.start : '';
+    endValue.textContent = validMark(state.marks.end) ? ' ' + state.marks.end : '';
     band.hidden = !points.length;
     if (points.length) {
       const span = Math.max(1, max - min);
@@ -220,6 +232,7 @@ function attachCVATRangeEditor(control, slider, anchor) {
     const locked = controlsLocked();
     const ready = Boolean(snapshot) && !loading && !locked;
     start.disabled = end.disabled = toggle.disabled = locked;
+    paintFramePosition();
     length.textContent = range ? (range.high - range.low + 1) + ' frame' : '';
     advanced.disabled = !ready;
     advanced.title = range ? 'Đổi tag, xóa toàn bộ tag trong khoảng và các thao tác khác' : 'Chọn Start và End';
@@ -249,7 +262,14 @@ function attachCVATRangeEditor(control, slider, anchor) {
   function mark(name) {
     const current = frame('now');
     if (!validMark(current) || controlsLocked()) return;
-    const next = { ...state.marks, [name]: current };
+    setMarks({ ...state.marks, [name]: current });
+  }
+  function markAll() {
+    const start = frame('min');
+    const end = frame('max');
+    if (validMark(start) && validMark(end) && !controlsLocked()) setMarks({ start, end });
+  }
+  function setMarks(next) {
     const before = currentRange();
     if (state.eventActions.size && !sameRange(before, currentRange(next))) {
       const question = 'Bỏ ' + state.eventActions.size + ' lựa chọn chưa áp dụng của frame ' + state.marks.start + '–' +
@@ -317,7 +337,11 @@ function attachCVATRangeEditor(control, slider, anchor) {
       if (result.stale) {
         state.snapshot = { ...result.snapshot, ...range };
         state.notice = staleNotice;
-      } else applied();
+      } else {
+        applied();
+        apply.textContent = 'Đã áp dụng';
+        setTimeout(() => { apply.textContent = 'Áp dụng'; }, 900);
+      }
     } catch (error) {
       if (jobSignal.aborted) return;
       state.notice = error.message;
@@ -329,6 +353,7 @@ function attachCVATRangeEditor(control, slider, anchor) {
 
   start.onclick = () => mark('start');
   end.onclick = () => mark('end');
+  selectAll.onclick = markAll;
   apply.onclick = () => { void applyQuick(); };
   advanced.onclick = () => {
     const range = currentRange();
@@ -360,6 +385,8 @@ function attachCVATRangeEditor(control, slider, anchor) {
     const { key, code } = event;
     const modified = event.ctrlKey || event.altKey || event.metaKey;
     if (!modified && (key === '4' || key === '5')) return () => mark(key === '4' ? 'start' : 'end');
+    if (event.ctrlKey && !event.altKey && !event.shiftKey && !event.metaKey && key.toLowerCase() === 'a' &&
+        !selectAll.disabled && !event.target?.isContentEditable && !window.getSelection()?.toString()) return markAll;
     if (collapsed) return null;
     const slot = /^(?:Digit|Numpad)([1-3])$/.exec(code)?.[1];
     if (slot && event.altKey && !event.ctrlKey && !event.metaKey && snapshotFor(currentRange())) {
@@ -483,7 +510,8 @@ function attachCVATRangeEditor(control, slider, anchor) {
         const next = after.get(id) || 0;
         const item = element('span', undefined, 'cvat-range-stat');
         item.dataset.labelId = id;
-        item.append(element('span', name), element('strong', now === next ? String(now) : now + ' → ' + next));
+        item.title = name;
+        item.append(element('span', displayCVATLabel(name)), element('strong', now === next ? String(now) : now + ' → ' + next));
         if (now !== next) item.dataset.changed = 'true';
         return item;
       }));
@@ -536,7 +564,8 @@ function attachCVATRangeEditor(control, slider, anchor) {
       rows.append(card);
 
       function chip(id, pressed, onToggle) {
-        const node = button(nameOf(id));
+        const node = button(displayCVATLabel(nameOf(id)));
+        node.title = nameOf(id);
         node.dataset.labelId = id;
         node.setAttribute('aria-pressed', String(pressed));
         node.disabled = busy;
@@ -555,8 +584,8 @@ function attachCVATRangeEditor(control, slider, anchor) {
           const op = editor.read();
           const multiple = editors.length > 1;
           ordinal.textContent = 'Thao tác ' + (index + 1);
-          const names = op.sources.map(nameOf).join(', ');
-          const targetNames = op.targets.map(nameOf).join(', ');
+          const names = op.sources.map(nameOf).map(displayCVATLabel).join(', ');
+          const targetNames = op.targets.map(nameOf).map(displayCVATLabel).join(', ');
           caption.textContent = op.mode === 'replace' && names && targetNames ? names + ' → ' + targetNames
             : modes[op.mode] + (op.mode === 'add' && targetNames ? ' · ' + targetNames : names ? ' · ' + names : '');
           summary.hidden = removeOperation.hidden = !multiple;

@@ -21,6 +21,11 @@
 // the range editor (its three event buttons).
 const CVAT_EVENT_LABELS = Object.freeze(['event_smoke', 'event_drinking', 'event_phone']);
 
+function displayCVATLabel(name) {
+  const names = { event_smoke: 'Smoke', event_drinking: 'Drinking', event_phone: 'Phone' };
+  return Object.hasOwn(names, name) ? names[name] : name;
+}
+
 function countCVATLabels(tags) {
   const present = new Map();
   for (const tag of tags) present.set(tag.labelId, (present.get(tag.labelId) || 0) + 1);

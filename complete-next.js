@@ -349,16 +349,19 @@
       node.disabled = true;
       return node;
     };
-    const counters = CVAT_EVENT_LABELS.map((name, index) => {
+    const counters = CVAT_EVENT_LABELS.map((name) => {
       const item = document.createElement('span');
       item.className = 'cvat-job-event-count';
       item.dataset.event = name;
-      const label = ['Smoke', 'Drinking', 'Phone'][index];
+      const label = displayCVATLabel(name);
       const value = document.createElement('strong');
       value.textContent = '—';
       const add = makeButton('+', 'cvat-job-event-add', 'Thêm ' + label + ' cho toàn job');
       const remove = makeButton('−', 'cvat-job-event-remove', 'Xóa ' + label + ' khỏi toàn job');
-      item.append(label, value, add, remove);
+      const caption = document.createElement('span');
+      caption.textContent = label;
+      caption.append(value);
+      item.append(caption, add, remove);
       eventCounts.append(item);
       return { name, label, value, add, remove };
     });

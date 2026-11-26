@@ -294,7 +294,7 @@ def main():
                 check(all(before[str(f)] == after[str(f)] for f in outside), f'{name}: frames outside {low}-{high} unchanged')
                 check(all(len(set(v)) == len(v) for v in after.values()), f'{name}: no duplicate tags on any frame')
                 check(sim('count("shape")') == shapes, f'{name}: shapes untouched')
-                check(start.inner_text() == f'Start {low}' and end.inner_text() == f'End {high}', f'{name}: Start/End kept')
+                check(start.text_content() == f'Start {low}' and end.text_content() == f'End {high}', f'{name}: Start/End kept')
                 check(page.evaluate('!document.querySelector(".cvat-range-band").hidden'), f'{name}: range still highlighted')
                 check(page.evaluate('window.__sim.state.annotation.canvas.ready'), f'{name}: CVAT canvas still ready (no stuck loading)')
 
@@ -341,11 +341,11 @@ def main():
             check(first.locator('select').first.input_value() == 'replace', 'Nâng cao starts with "Đổi tag"')
             first.locator('select').first.select_option('add')
             offered = first.locator('.cvat-target-chips button').evaluate_all('(nodes) => nodes.map((n) => n.textContent)')
-            check(offered == list(EVENTS), f'add offers only the three events {offered}')
+            check(offered == ['Smoke', 'Drinking', 'Phone'], f'add offers only the three events {offered}')
             counts = page.evaluate('''() => Object.fromEntries([...document.querySelectorAll('.cvat-range-stat')]
                 .map((n) => [n.firstChild.textContent, n.lastChild.textContent]))''')
             real = {name: str(sum(1 for f in range(50, 71) if label in before[str(f)]))
-                    for name, label in [('event_smoke', 1), ('event_drinking', 2), ('event_phone', 3)]}
+                    for name, label in [('Smoke', 1), ('Drinking', 2), ('Phone', 3)]}
             check(counts == real, f'exactly three event counts at the top of the dialog {counts}')
             check('cigarette' not in counts, 'other tag labels are not shown as event boxes')
             check(dialog.locator('.cvat-range-count').count() == 0, 'no counts inside the chips')
@@ -368,7 +368,7 @@ def main():
             check(after == expected_after(before, 50, 70, ops, VALID),
                   f'remove + replace + add applied together, matching an independent model ({preview})')
             check(all(len(set(v)) == len(v) for v in after.values()), 'batch: no duplicate tags')
-            check(start.inner_text() == 'Start 50' and end.inner_text() == 'End 70', 'batch: Start/End kept')
+            check(start.text_content() == 'Start 50' and end.text_content() == 'End 70', 'batch: Start/End kept')
             check(page.evaluate('window.__sim.state.annotation.canvas.ready'), 'batch: canvas still ready')
 
             print('Conflicting operations are blocked, not resolved silently')
@@ -421,12 +421,12 @@ def main():
                           remove_box['y'] > add_box['y'] and add_box['height'] == remove_box['height'],
                           f'{width}px: both {name} buttons share a column and size')
             page.set_viewport_size(viewport)
-            check(panel.locator('.cvat-quick-event').all_inner_texts() == list(EVENTS) * 2 and
+            check(panel.locator('.cvat-quick-event').all_inner_texts() == ['Smoke', 'Drinking', 'Phone'] * 2 and
                   panel.locator('.cvat-quick-results, .cvat-quick-queue').count() == 0, 'two direct rows replace Results')
             blur(); native()
             sim('setFrame(52)'); page.keyboard.press('4')
             sim('setFrame(68)'); page.keyboard.press('5')
-            check(start.inner_text() == 'Start 52' and end.inner_text() == 'End 68', 'keys 4/5 mark Start/End')
+            check(start.text_content() == 'Start 52' and end.text_content() == 'End 68', 'keys 4/5 mark Start/End')
             check(native() == [], '4/5 taken by Quickstart: CVAT slot 4/5 not toggled')
             wait_ready()
             before = tags_by_frame()
@@ -474,7 +474,7 @@ def main():
             page.wait_for_function("""!document.querySelector('.cvat-quick-event[aria-pressed="true"]')""")
             ops = [('add', [], 1), ('add', [], 3), ('remove', [2], None)]
             check(tags_by_frame() == expected_after(before, 52, 68, ops, VALID), 'one mixed Apply matches the model')
-            check(start.inner_text() == 'Start 52' and end.inner_text() == 'End 68' and frame_position.inner_text() == '68/100',
+            check(start.text_content() == 'Start 52' and end.text_content() == 'End 68' and frame_position.inner_text() == '68/100',
                   'Apply keeps both marks and the current frame')
             check(info.inner_text() == '' and quick_apply.is_disabled(), 'success resets the controls silently')
             check(native() == [], 'panel shortcuts and repeated Enter during Apply stay out of CVAT')
@@ -504,10 +504,10 @@ def main():
             blur()
             page.once('dialog', lambda d: d.dismiss())
             page.keyboard.press('5')
-            check(end.inner_text() == 'End 68' and selected.count() == 1, 'cancel moving a mark keeps the draft')
+            check(end.text_content() == 'End 68' and selected.count() == 1, 'cancel moving a mark keeps the draft')
             page.once('dialog', lambda d: d.accept())
             page.keyboard.press('5')
-            check(end.inner_text() == 'End 80' and selected.count() == 0, 'accept moving a mark discards its draft')
+            check(end.text_content() == 'End 80' and selected.count() == 0, 'accept moving a mark discards its draft')
             wait_ready()
             print('Nâng cao from the direct selections')
             before = tags_by_frame()
@@ -541,11 +541,11 @@ def main():
             native()
             page.locator('.cvat-player-frame-selector').focus()
             sim('setFrame(60)'); page.keyboard.press('4')
-            check(start.inner_text() == 'Start 52', 'typing 4 in the frame field does not mark')
+            check(start.text_content() == 'Start 52', 'typing 4 in the frame field does not mark')
             blur()
             page.evaluate('document.querySelector(".cvat-workspace-selector .ant-select-selection-item").textContent = "Standard"')
             page.keyboard.press('4')
-            check(start.inner_text() == 'Start 52' and native() == ['4'], 'Standard workspace: 4 goes to CVAT')
+            check(start.text_content() == 'Start 52' and native() == ['4'], 'Standard workspace: 4 goes to CVAT')
             page.evaluate('document.querySelector(".cvat-workspace-selector .ant-select-selection-item").textContent = "Tag annotation"')
             page.keyboard.press('1')
             check(native() == ['1'], 'slot key 1 still goes to CVAT')
@@ -555,7 +555,7 @@ def main():
             page.evaluate("document.removeEventListener('keydown', window.suppressDefault)")
             check(native() == ['ArrowRight', 'z', 'y', 's', '=', '-'], 'navigation, Save, native Undo/Redo and retired queue keys reach CVAT')
             page.keyboard.down('4'); page.keyboard.down('4'); page.keyboard.up('4')
-            check(start.inner_text() == 'Start 60' and native() == [], 'held 4 marks once; auto-repeat not passed to CVAT')
+            check(start.text_content() == 'Start 60' and native() == [], 'held 4 marks once; auto-repeat not passed to CVAT')
             check(server.since(mark) == [], 'Quickstart made no server request')
             check(page.evaluate('sessionStorage.getItem("loads")') == '1', 'Quickstart: no page reload')
 
@@ -566,7 +566,7 @@ def main():
             page.wait_for_selector('.cvat-quick-panel .cvat-quick-start')
             check(page.locator('.cvat-quick-panel').count() == 1 and page.locator('.cvat-range-band').count() == 1,
                   'one panel and one band after a remount')
-            check(selected.count() == 1 and start.inner_text() == 'Start 50', 'draft and marks survive a remount')
+            check(selected.count() == 1 and start.text_content() == 'Start 50', 'draft and marks survive a remount')
             prompts = []
             def on_dialog(d):
                 prompts.append(d.message)
@@ -575,7 +575,7 @@ def main():
             blur(); native()
             sim('setFrame(55)'); page.keyboard.press('4')
             page.remove_listener('dialog', on_dialog)
-            check(len(prompts) == 1 and native() == [] and start.inner_text() == 'Start 50',
+            check(len(prompts) == 1 and native() == [] and start.text_content() == 'Start 50',
                   f'one key listener after remount ({len(prompts)} confirm, nothing leaked)')
             page.evaluate("""() => {
                 const slider = document.querySelector('.cvat-player-slider');
@@ -633,7 +633,7 @@ def main():
             check([e['action'] for e in saves] == ['delete', 'create'], f'save used {len(saves)} requests: '
                   + ', '.join(f"{e['action']}({e['tags']})" for e in saves))
             check(page.evaluate('sessionStorage.getItem("loads")') == '1', 'Save did not reload the page')
-            check(start.inner_text().startswith('Start ') and end.inner_text().startswith('End '), 'Start/End kept after Save')
+            check(start.text_content().startswith('Start ') and end.text_content().startswith('End '), 'Start/End kept after Save')
 
             print('Clear All Tags (local only, same path as Apply)')
             set_range(10, 20)
@@ -656,7 +656,7 @@ def main():
             check('Chưa lưu lên server' in status.inner_text(), 'Clear All reports the save state like Apply')
             badge_matches('after Clear All')
             check(page.locator('.cvat-clear-count').inner_text() == '0', 'Clear All Tags shows 0')
-            check(start.inner_text() == 'Start 10' and end.inner_text() == 'End 20' and selected.count() == 1,
+            check(start.text_content() == 'Start 10' and end.text_content() == 'End 20' and selected.count() == 1,
                   'Start/End and the draft selection kept')
             check(quick_apply.is_enabled(), 'retained add selection is effective after Clear All')
             check(page.evaluate('window.__sim.state.annotation.canvas.ready'), 'canvas still ready after Clear All')
@@ -737,7 +737,7 @@ def main():
             phone_add = page.locator('[data-event="event_phone"] .cvat-job-event-add')
             phone_remove = page.locator('[data-event="event_phone"] .cvat-job-event-remove')
             check(undo_apply.is_disabled() and redo_apply.is_disabled(), 'history starts empty in the new job page')
-            check(start.inner_text() == 'Start' and end.inner_text() == 'End', 'no Start/End marks before whole-job add')
+            check(start.text_content() == 'Start' and end.text_content() == 'End', 'no Start/End marks before whole-job add')
             before = tags_by_frame()
             phone_add.click()
             wait('window.__sim.count("tag", 3) === 98', 'whole-job add fills all eligible frames')
@@ -800,6 +800,40 @@ def main():
             blur(); page.keyboard.press('Alt+3'); page.keyboard.press('Alt+Shift+3')
             check(event('event_phone').is_disabled() and event('event_phone', 'remove').is_disabled() and
                   selected.count() == 0, 'a missing job label disables both directions through mouse and keyboard')
+            print('Select All range')
+            select_all = panel.get_by_role('button', name='Select All', exact=True)
+            before = tags_by_frame()
+            event('event_smoke').click()
+            page.once('dialog', lambda d: d.dismiss())
+            select_all.click()
+            check(start.text_content() == 'Start 1' and end.text_content() == 'End 2' and pressed('event_smoke'),
+                  'canceling Select All preserves both marks and draft')
+            page.once('dialog', lambda d: d.accept())
+            select_all.click()
+            wait_ready()
+            check(start.text_content() == 'Start 0' and end.text_content() == 'End 99' and selected.count() == 0,
+                  'Select All marks the inclusive job in one action')
+            page.evaluate("""() => {
+                const h = document.querySelector('[role=slider]');
+                h.setAttribute('aria-valuemin','6400'); h.setAttribute('aria-valuemax','6599');
+                window.__sim.setFrame(6410);
+            }""")
+            field = page.locator('.cvat-player-frame-selector')
+            field.fill('6410'); field.focus(); page.keyboard.press('Control+a')
+            check(field.evaluate('n => n.selectionEnd - n.selectionStart') == 4 and start.text_content() == 'Start 0',
+                  'Ctrl+A selects text in the frame input')
+            blur(); native()
+            workspace = page.locator('.cvat-workspace-selector .ant-select-selection-item')
+            workspace.evaluate("n => n.textContent = 'Standard'")
+            page.keyboard.press('Control+a')
+            check(native() == ['a'] and start.text_content() == 'Start 0', 'Standard receives native Ctrl+A')
+            page.evaluate('window.getSelection().removeAllRanges()')
+            workspace.evaluate("n => n.textContent = 'Tag annotation'")
+            page.keyboard.press('Control+a')
+            check(start.text_content() == 'Start 6400' and end.text_content() == 'End 6599' and native() == [],
+                  'Tag Ctrl+A uses absolute job bounds and is consumed once')
+            check(frame_position.inner_text() == '10/200' and tags_by_frame() == before,
+                  'marking the whole job preserves the player and annotations')
             browser.close()
     finally:
         proc.kill()
