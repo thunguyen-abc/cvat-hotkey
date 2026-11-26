@@ -187,6 +187,14 @@ def main():
                         f'{message}: Clear All Tags count matches the job'):
                     check(True, f'{message}: Clear All Tags shows {tag_count()} tags')
 
+            def event_counts_match(message):
+                expression = """() => {
+                    const group = document.querySelector('.cvat-event-complete-next .cvat-job-event-counts');
+                    return group?.children.length === 3 && [...group.children].map(item => item.querySelector('strong').textContent)
+                        .every((value, index) => value === String(window.__sim.count('tag', index + 1)));
+                }"""
+                check(wait(expression, message), message)
+
             def set_range(low, high):
                 sim(f'setFrame({low})'); start.click()
                 sim(f'setFrame({high})'); end.click()
@@ -243,6 +251,11 @@ def main():
 
             print('Clear All Tags count')
             badge_matches('on job open')
+            event_counts_match('whole-job event counters are ready before marking a range')
+            job_counts = page.get_by_role('group', name='Tổng số event trong job').bounding_box()
+            job_button = page.get_by_role('button', name='Complete & Next').bounding_box()
+            check(job_counts['y'] >= job_button['y'] + job_button['height'],
+                  'whole-job counters sit below the job buttons')
             check(sim('statistics') > 0 and sim('exports') == 0, 'count read from CVAT statistics, no whole-job export')
 
             def run_edit(low, high, mode, sources=(), target=None, expect_preview=None, tamper=None):
@@ -421,9 +434,6 @@ def main():
             wait_ready()
             before = tags_by_frame()
             check(not any(pressed(n) for n in EVENTS), 'event boxes start off')
-            box_counts = [event(n).locator('.cvat-quick-event-count').inner_text() for n in EVENTS]
-            real = [f'{sum(1 for f in range(52, 69) if label in before[str(f)])}/17' for label in (1, 2, 3)]
-            check(box_counts == real, f'event boxes show tagged frames out of total marked frames {box_counts}')
             check(quick_apply.is_disabled() and panel.locator('.cvat-quick-add').is_disabled(),
                   '+ and Apply locked with no event selected')
             event('event_smoke').click()
@@ -443,10 +453,6 @@ def main():
             rows.nth(1).locator('.cvat-quick-drop').click()
             check(rows.count() == 2 and [rows.nth(i).get_attribute('data-mode') for i in range(2)] == ['add', 'remove'],
                   '× drops the middle row')
-            phone = event('event_phone')
-            check(phone.locator('.cvat-quick-event-count').inner_text() == real[2] and
-                  phone.locator('.cvat-quick-event-next').inner_text() == '→ 17',
-                  'event box keeps the current ratio and shows the projected count separately')
             preview = info.inner_text()
             check(preview.startswith('Thêm ') and ' · Xóa ' in preview, f'panel preview shows the totals ({preview})')
             refreshes = sim('refreshes')
@@ -463,12 +469,12 @@ def main():
             check(sim('refreshes') == refreshes + 1, 'a second Enter with an empty queue applies nothing')
             native()
             badge_matches('after panel Apply')
+            event_counts_match('job-wide event counters include unsaved Apply changes')
 
             wait_ready()
             page.keyboard.press('-')
-            check(rows.count() == 1 and rows.nth(0).get_attribute('data-invalid') == 'true' and quick_apply.is_disabled(),
-                  f'− of events missing from the range is flagged ({rows.nth(0).inner_text()!r}) and blocks Apply')
-            rows.nth(0).locator('.cvat-quick-drop').click()
+            check(rows.count() == 0 and quick_apply.is_disabled() and 'Không có tag' in info.inner_text(),
+                  '− skips a no-op instead of adding an invalid row')
 
             blur(); page.keyboard.press('=')
             sim('setFrame(80)')
@@ -696,6 +702,21 @@ def main():
             calls = server.since(mark)
             check(any(e.get('scan') for e in calls), 'no open job via filter: task job list scanned before giving up')
             check(server.job_state[60] == 'completed', 'job 60 completed, task page opened')
+
+            print('Remove tags at frame zero')
+            page.goto(f'{ORIGIN}/tasks/12/jobs/77')
+            page.wait_for_selector('.cvat-quick-start')
+            mark = server.mark()
+            set_range(0, 0)
+            select_only('event_smoke', 'event_phone')
+            check(1 in sim('tagsOn(0)') and 3 not in sim('tagsOn(0)'), 'frame 0 has smoke and no phone before removal')
+            panel.locator('.cvat-quick-remove').click()
+            check(rows.count() == 1 and quick_apply.is_enabled(), 'a missing label does not block the frame 0 removal')
+            quick_apply.click()
+            wait('document.querySelectorAll(".cvat-quick-row").length === 0', 'frame 0 Apply finished')
+            check(1 not in sim('tagsOn(0)') and 1 in sim('tagsOn(3)'), 'Apply removes smoke at frame 0 only')
+            check(server.since(mark) == [], 'frame 0 removal stays in memory until Save')
+            event_counts_match('job-wide counts update after frame 0 removal')
             browser.close()
     finally:
         proc.kill()

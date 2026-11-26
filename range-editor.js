@@ -86,14 +86,11 @@ function attachCVATRangeEditor(control, slider, anchor) {
     const label = element('span', undefined, 'cvat-quick-event-name');
     const [prefix, suffix] = name.split('_');
     label.append(prefix + '_', element('wbr'), suffix);
-    const counts = element('span', undefined, 'cvat-quick-event-metrics');
-    const count = element('span', '—', 'cvat-quick-event-count');
-    const projection = element('span', undefined, 'cvat-quick-event-next');
-    counts.append(count, projection);
-    node.append(label, counts);
+    label.translate = false;
+    node.append(label);
     node.onclick = () => toggleEvent(index);
     events.append(node);
-    return { node, count, projection };
+    return node;
   });
   const queueActions = element('div', undefined, 'cvat-quick-actions');
   const addRow = button('+', 'cvat-quick-add');
@@ -169,13 +166,6 @@ function attachCVATRangeEditor(control, slider, anchor) {
     if (framePosition.textContent !== position) framePosition.textContent = position;
   }
 
-  // A label can have more than one tag on a frame. The event cards measure frame coverage.
-  function countEventFrames(tags, ids) {
-    const framesById = new Map(ids.filter((id) => id !== null).map((id) => [id, new Set()]));
-    for (const { labelId, frame: number } of tags) framesById.get(labelId)?.add(number);
-    return framesById;
-  }
-
   function paint() {
     const min = frame('min');
     const max = frame('max');
@@ -233,23 +223,15 @@ function attachCVATRangeEditor(control, slider, anchor) {
     advanced.title = ready ? 'Đổi tag, xóa toàn bộ tag trong khoảng và các thao tác khác'
       : 'Chọn Start và End để chỉnh tag';
 
-    const before = countEventFrames(snapshot?.tags ?? [], ids);
-    const after = state.rows.length && result ? countEventFrames(result.desired, ids) : before;
-    eventButtons.forEach(({ node, count, projection }, index) => {
+    eventButtons.forEach((node, index) => {
       const name = CVAT_EVENT_LABELS[index];
       const id = ids[index];
       const missing = Boolean(snapshot) && id === null;
       node.disabled = !ready || id === null;
       node.dataset.missing = String(missing);
       node.setAttribute('aria-pressed', String(state.selected.has(name) && !missing));
-      const now = before.get(id)?.size ?? 0;
-      const next = after.get(id)?.size ?? 0;
-      count.textContent = snapshot && !missing ? now + '/' + rangeLength : '—';
-      projection.hidden = now === next;
-      projection.textContent = now === next ? '' : '→ ' + next;
       node.title = missing ? 'Job không có nhãn ' + name
-        : name + ' (Alt+' + (index + 1) + ')' + (snapshot ? ': ' + now + '/' + rangeLength + ' frame trong khoảng' : '') +
-          (now === next ? '' : ' · Sau áp dụng: ' + next + '/' + rangeLength);
+        : name + ' (Alt+' + (index + 1) + ')';
     });
     const chosen = selectedIds(snapshot);
     addRow.disabled = removeRow.disabled = !ready || !chosen.length;
@@ -262,7 +244,7 @@ function attachCVATRangeEditor(control, slider, anchor) {
       sign.title = row.mode === 'add' ? 'Thêm' : 'Xóa';
       const names = row.ids.map((id) => nameIn(snapshot, id)).join(', ');
       const text = element('span', names, 'cvat-quick-names');
-      const problem = step?.problem ? rowProblem(row, step, index, snapshot) : '';
+      const problem = step?.problem;
       item.dataset.invalid = String(Boolean(problem));
       const drop = button('×', 'cvat-quick-drop');
       drop.dataset.index = String(index);
@@ -301,13 +283,6 @@ function attachCVATRangeEditor(control, slider, anchor) {
     return CVAT_EVENT_LABELS.map((name, index) => (state.selected.has(name) ? ids[index] : null))
       .filter((id) => id !== null);
   }
-  function rowProblem(row, step, index, snapshot) {
-    if (row.mode !== 'remove') return step.problem;
-    const missing = row.ids.filter((id) => !step.present.has(id)).map((id) => nameIn(snapshot, id));
-    if (!missing.length) return step.problem;
-    return 'Khoảng không có ' + missing.join(', ') + (index ? ' sau các thao tác phía trên.' : '.');
-  }
-
   // ---- Actions (shared by mouse and keys) ------------------------------------------------
   function mark(name) {
     const current = frame('now');
@@ -326,7 +301,7 @@ function attachCVATRangeEditor(control, slider, anchor) {
     void load();
   }
   function toggleEvent(index) {
-    if (eventButtons[index].node.disabled) return;
+    if (eventButtons[index].disabled) return;
     const name = CVAT_EVENT_LABELS[index];
     if (state.selected.has(name)) state.selected.delete(name);
     else state.selected.add(name);
@@ -337,8 +312,17 @@ function attachCVATRangeEditor(control, slider, anchor) {
   // the ids, so toggling afterwards only affects the next row.
   function enqueue(mode) {
     const range = currentRange();
-    const ids = selectedIds(snapshotFor(range));
+    const snapshot = snapshotFor(range);
+    const ids = selectedIds(snapshot);
     if (!range || state.busy || !ids.length) return;
+    if (mode === 'remove') {
+      const { desired } = planFor(range, snapshot, operations(state.rows));
+      if (!desired.some(({ labelId }) => ids.includes(labelId))) {
+        state.notice = { text: 'Không có tag phù hợp để xóa.', kind: 'idle' };
+        render();
+        return;
+      }
+    }
     state.rows = [...state.rows, { mode, ids }];
     state.notice = null;
     render();
@@ -448,7 +432,7 @@ function attachCVATRangeEditor(control, slider, anchor) {
     const slot = /^(?:Digit|Numpad)([1-3])$/.exec(code)?.[1];
     if (slot && event.altKey !== event.ctrlKey && !event.metaKey && !event.shiftKey) {
       const index = Number(slot) - 1;
-      return eventButtons[index].node.disabled ? null : () => toggleEvent(index);
+      return eventButtons[index].disabled ? null : () => toggleEvent(index);
     }
     if (modified) return null;
     if (key === '=' || key === '+') return addRow.disabled ? null : () => enqueue('add');

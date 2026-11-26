@@ -104,7 +104,11 @@
       // Like cvat-core: counts of the live in-memory collection, no serialization.
       async statistics() {
         statistics += 1;
-        return { label: {}, total: { tag: live().filter((o) => o.type === 'tag').length, manually: 0, interpolated: 0, total: 0 } };
+        const tags = live().filter((o) => o.type === 'tag');
+        const label = Object.fromEntries(labels.map(({ id, name }) => [
+          name, { tag: tags.filter((tag) => tag.labelId === id).length },
+        ]));
+        return { label, total: { tag: tags.length, manually: 0, interpolated: 0, total: 0 } };
       },
     },
     frames: {

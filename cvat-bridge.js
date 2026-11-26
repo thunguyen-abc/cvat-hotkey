@@ -57,21 +57,27 @@
     return value;
   }
 
-  // Whole-job tag list. Used only by Clear All Tags, which is job-wide by definition.
+  // Whole-job tag list, used by Clear All Tags and as a statistics fallback.
   async function readAllTags(job) {
     const data = await job.annotations.export();
     return (data.tags || []).map((tag) => ({ clientID: tag.clientID, frame: tag.frame, labelId: tag.label_id }));
   }
 
-  // Number of tags in the job, unsaved changes included. CVAT's own statistics (the
-  // Info dialog) count the in-memory collection without serializing it; the export is
-  // the fallback.
+  // Whole-job counts from CVAT's in-memory statistics, including unsaved changes.
   async function countTags(job) {
+    const labels = tagLabels(job);
     try {
-      const total = (await job.annotations.statistics())?.total;
-      if (Number.isInteger(total?.tag)) return total.tag;
+      const stats = await job.annotations.statistics();
+      const count = stats?.total?.tag;
+      const labelStats = stats?.label;
+      if (Number.isInteger(count) && labelStats && labels.every(({ name }) => Number.isInteger(labelStats[name]?.tag))) {
+        return { count, byLabel: Object.fromEntries(labels.map(({ name }) => [name, labelStats[name].tag])) };
+      }
     } catch { /* Fall back to the export. */ }
-    return (await readAllTags(job)).length;
+    const tags = await readAllTags(job);
+    const counts = new Map();
+    for (const { labelId } of tags) counts.set(labelId, (counts.get(labelId) || 0) + 1);
+    return { count: tags.length, byLabel: Object.fromEntries(labels.map(({ id, name }) => [name, counts.get(id) || 0])) };
   }
 
   // CVAT replaces annotation.annotations.history after every annotation action (tag
@@ -81,11 +87,12 @@
   function watchAnnotations(store) {
     let seen = {};
     let timer = 0;
-    const announce = async (job) => {
+    const announce = async (snapshot) => {
+      const { job } = snapshot;
       try {
-        if (store.getState().annotation?.job?.instance !== job) return;
-        const count = await countTags(job);
-        document.dispatchEvent(new CustomEvent(CHANGED, { detail: JSON.stringify({ jobId: job.id, count }) }));
+        const counts = await countTags(job);
+        if (seen !== snapshot) return;
+        document.dispatchEvent(new CustomEvent(CHANGED, { detail: JSON.stringify({ jobId: job.id, ...counts }) }));
       } catch { /* The next change announces again. */ }
     };
     const check = () => {
@@ -95,7 +102,8 @@
       if (job === seen.job && history === seen.history) return;
       seen = { job, history };
       clearTimeout(timer);
-      if (job) timer = setTimeout(() => { void announce(job); }, 250);
+      const snapshot = seen;
+      if (job) timer = setTimeout(() => { void announce(snapshot); }, 250);
     };
     const unsubscribe = typeof store.subscribe === 'function' ? store.subscribe(check) : null;
     check();
@@ -328,7 +336,7 @@
 
     async tagCount({ jobId }) {
       const { job } = context(jobId);
-      return { count: await countTags(job) };
+      return countTags(job);
     },
 
     async clearSnapshot({ jobId }) {

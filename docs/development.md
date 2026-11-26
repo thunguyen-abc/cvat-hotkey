@@ -7,7 +7,7 @@ This guide is for developers who continue work on this repository. User document
 - Repository: https://github.com/thunguyen-abc/cvat-hotkey, branch `main`.
 - Platform: Chrome extension, Manifest V3, installed with **Load unpacked**.
 - Target site: https://cvat-tai.abcstudio.online. Reference job: `/tasks/681/jobs/6306`.
-- Release baseline: `v1.7.2` (separate Quickstart groups, frame position and event ratios). Check GitHub Releases before choosing the next version.
+- Release baseline: `v1.7.3` (compact Quickstart, whole-job event counts, remove skips absent tags). Check GitHub Releases before choosing the next version.
 
 The extension adds features to the existing CVAT annotation UI. It does not need any change to the CVAT server. Continue with this codebase; do not rewrite it.
 
@@ -35,7 +35,7 @@ Content scripts do not call `chrome.*` APIs. This is deliberate: when the extens
 
 ## Working with CVAT's in-memory annotations
 
-The Quickstart header reads the player slider for the zero-based job position and inclusive job size. It observes player changes independently of range planning. Event card ratios come from the range snapshot and count distinct frames per event over the inclusive Start–End span. The queued plan supplies the projected numbers shown beside the ratios.
+The Quickstart header reads the player slider for the zero-based job position and inclusive job size. It observes player changes independently of range planning. Job-wide event totals sit below the job buttons and use the same bridge update as the Clear All Tags badge. CVAT statistics provide `total.tag` and `label[name].tag`; the bridge falls back to counting the in-memory export.
 
 The deployed server runs CVAT **2.56.1** (`/api/server/about`). When a job opens, CVAT loads all of its annotations into a client-side collection (cvat-core). It saves by comparing that collection with the copy it last received from the server, and sends only the difference: one `PATCH …/annotations?action=update`, one `action=delete` and one `action=create`, each only if non-empty. Each is retried on 504. Autosave runs on the user's `autoSaveInterval`. "Finish the job" saves first, then sets the state to completed.
 
@@ -88,7 +88,7 @@ Verified on 2026-11-25 on Windows 10 with PowerShell 5.1 and Chromium 1248:
 
 ## Range editor: several operations
 
-Since v1.6.3 the dialog holds a list of operation cards (UI ported from the unpublished 1.6.0 draft). `range-plan.js` `planCVATRangeBatch` projects the operations top to bottom on the snapshot of the range. Each card sees the tags left by the cards above it. A card without a target, without a selected source, with a source that no longer exists, or with source = target gets a `problem` and blocks Apply. The final state is diffed against the original: unchanged `(frame, label)` pairs are kept, relabels count as "Đổi", and the result is `{ create: [{ frame, labelId }], delete: [{ clientID, frame }] }`. The bridge re-reads the range, refuses a changed fingerprint, checks that every delete exists and that no `(frame, label)` pair would be duplicated, then deletes and creates (one `put`). Unit tests: `node tests/range_plan_test.js`, also run by the release workflow.
+`range-plan.js` `planCVATRangeBatch` projects the operations top to bottom on the snapshot of the range. Each card sees the tags left by the cards above it. Remove skips absent tags. Replace requires a selected source that is still present and a different target. Missing selections block Apply. The final state is diffed against the original. Unchanged `(frame, label)` pairs are kept, relabels count as "Đổi", and the result is `{ create: [{ frame, labelId }], delete: [{ clientID, frame }] }`. The bridge re-reads the range, refuses a changed fingerprint, validates the diff, then deletes and creates. The release workflow runs `node tests/range_plan_test.js`.
 
 ## Complete & Next
 

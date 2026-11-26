@@ -14,9 +14,8 @@
 //   mode 'remove'  removes the selected source labels
 //   mode 'all'     removes every tag in the range
 //
-// An operation whose source label no longer exists after the operations above it, or that
-// lacks a target, is reported as invalid and blocks Apply: conflicts are never resolved
-// silently. Existing tags are never duplicated.
+// Remove skips missing tags. Replace requires its source to be present when its step runs.
+// Missing selections are reported as invalid. Existing tags are never duplicated.
 
 // The three event labels, in slot order 1/2/3. Shared by hotkeys.js (CVAT's tag slots) and
 // the range editor (its three event buttons).
@@ -33,8 +32,9 @@ function checkCVATOperation(op, present) {
   const targets = op.targets || [];
   if (op.mode === 'add' && !targets.length) return 'Chọn event cần thêm.';
   if (op.mode === 'replace' && targets.length !== 1) return 'Chọn một event đích.';
-  if (['replace', 'remove'].includes(op.mode)) {
-    if (!sources.length) return op.mode === 'replace' ? 'Chọn tag cần đổi.' : 'Chọn tag cần xóa.';
+  if (op.mode === 'remove' && !sources.length) return 'Chọn tag cần xóa.';
+  if (op.mode === 'replace') {
+    if (!sources.length) return 'Chọn tag cần đổi.';
     if (!sources.every((id) => present.has(id))) return 'Tag đã chọn không còn sau các thao tác phía trên.';
   }
   if (op.mode === 'replace' && sources.includes(targets[0])) return 'Tag nguồn và tag đích phải khác nhau.';

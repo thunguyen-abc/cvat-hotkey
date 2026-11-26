@@ -17,7 +17,7 @@ Bảng chỉnh nhanh nằm ngay dưới ô số frame khi mở job. **Frame 0/20
 ```text
 [Start 6400] [End 6440] 41 frame       Frame 40/200 [Nâng cao] [▴]
 
-[event_smoke 12/41] [event_drinking 3/41] [event_phone 0/41]   [+] [−]
+[event_smoke] [event_drinking] [event_phone]   [+] [−]
 
 ┌ Kết quả ────────────────────────────────────────────────┐
 │ + event_smoke, event_phone                          [×] │
@@ -26,10 +26,10 @@ Bảng chỉnh nhanh nằm ngay dưới ô số frame khi mở job. **Frame 0/20
 └─────────────────────────────────────────────────────────┘
 ```
 
-- Bảng có đúng ba ô event gồm `event_smoke`, `event_drinking` và `event_phone`. Ví dụ, `12/41` nghĩa là 12 trong 41 frame giữa hai mốc có tag đó. Mũi tên `→ 0` cho biết số frame dự kiến sau khi áp dụng hàng đợi. Ô event hiện dấu gạch khi chưa có khoảng và bị khóa nếu job thiếu nhãn.
+- Bảng có đúng ba nút event gồm `event_smoke`, `event_drinking` và `event_phone`. Job thiếu nhãn nào thì nút nhãn đó bị khóa. Tổng số tag của từng event trong job nằm dưới **Complete & Next** và **Clear All Tags**. Số đếm hiện ngay khi mở job và tính cả thay đổi chưa lưu.
 - Bấm ô (hoặc `Alt+1/2/3`) để chọn hay bỏ chọn event; ô đang chọn có nền màu.
 - **+ Thêm** (phím `=`) xếp một dòng thêm toàn bộ event đang chọn; **− Xóa** (phím `-`) xếp một dòng xóa chúng. Dòng giữ nguyên event lúc xếp, nên đổi lựa chọn sau đó chỉ ảnh hưởng dòng kế tiếp. Các dòng chạy từ trên xuống, nên **−** có thể xóa event vừa được dòng trên thêm. Bấm **×** để bỏ một dòng.
-- Dòng không hợp lệ (ví dụ xóa event không có trong khoảng) được tô đỏ kèm lý do và khóa **Áp dụng**.
+- **−** chỉ xóa các tag có trong khoảng. Nếu cả lựa chọn đều vắng mặt, thao tác tự bỏ qua.
 - **Áp dụng** (phím `Enter`) chạy toàn bộ hàng đợi một lần.
 - Đổi sang khoảng khác khi còn dòng chưa áp dụng: extension hỏi trước khi bỏ chúng.
 - Nút **▴** thu gọn bảng; phím `4`/`5` vẫn hoạt động.

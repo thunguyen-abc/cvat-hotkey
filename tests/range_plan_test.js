@@ -101,6 +101,21 @@ test('a source removed by an earlier operation blocks Apply instead of being ign
   assert.match(result.steps[1].problem, /không còn/);
 });
 
+test('remove at frame zero skips missing labels and repeated removals', () => {
+  const found = tag(0, SMOKE);
+  const elsewhere = tag(1, SMOKE);
+  const result = plan({
+    tags: [found, elsewhere], low: 0, high: 0,
+    operations: [
+      { mode: 'remove', sources: [SMOKE, PHONE] },
+      { mode: 'remove', sources: [SMOKE] },
+    ],
+  });
+  assert.equal(result.complete, true);
+  assert.deepEqual(result.delete, [{ clientID: found.clientID, frame: 0 }]);
+  assert.equal(result.counts.remove, 1);
+});
+
 test('missing target and same source/target are reported', () => {
   const tags = [tag(0, SMOKE)];
   assert.match(plan({ tags, low: 0, high: 0, operations: [{ mode: 'add', targets: [] }] }).steps[0].problem, /cần thêm/);

@@ -332,8 +332,24 @@
     button.textContent = 'Complete & Next';
     button.classList.add('cvat-event-primary');
     button.setAttribute('aria-describedby', 'cvat-event-complete-status');
-    // Message box under the buttons: the text plus a × to hide it, so it never has to
-    // stay over the tags. Results hide themselves after a few seconds; errors stay until ×.
+    // Metadata sits below the job buttons beside Menu, separate from the player.
+    const meta = document.createElement('span');
+    meta.className = 'cvat-job-meta';
+    const eventCounts = document.createElement('span');
+    eventCounts.className = 'cvat-job-event-counts';
+    eventCounts.setAttribute('role', 'group');
+    eventCounts.setAttribute('aria-label', 'Tổng số event trong job');
+    const counters = CVAT_EVENT_LABELS.map((name, index) => {
+      const item = document.createElement('span');
+      item.className = 'cvat-job-event-count';
+      item.title = name;
+      item.dataset.event = name;
+      const value = document.createElement('strong');
+      value.textContent = '—';
+      item.append(['Smoke', 'Drinking', 'Phone'][index], value);
+      eventCounts.append(item);
+      return { name, value };
+    });
     const statusBox = document.createElement('span');
     statusBox.className = 'cvat-event-complete-status';
     const status = document.createElement('span');
@@ -377,18 +393,28 @@
       clearButton.title = `Job có ${count} tag, tính cả thay đổi chưa lưu`;
       clearButton.setAttribute('aria-label', `Clear All Tags (${count} tag)`);
     };
-    wrapper.append(button, clearButton, statusBox);
+    meta.append(eventCounts, statusBox);
+    wrapper.append(button, clearButton, meta);
     menu.after(wrapper);
     controls = { job, menu, wrapper, button, clearButton, status, notify, showTagCount, controller: new AbortController() };
     const control = controls;
     const { signal } = control.controller;
-    cvatEventBridge.onTagsChanged(({ jobId, count }) => { if (jobId === job.jobId) showTagCount(count); }, signal);
+    let countsReady = false;
+    function showCounts({ count, byLabel }) {
+      showTagCount(count);
+      for (const { name, value } of counters) {
+        const text = String(byLabel?.[name] ?? 0);
+        if (value.textContent !== text) value.textContent = text;
+      }
+      countsReady = true;
+    }
+    cvatEventBridge.onTagsChanged((counts) => { if (counts.jobId === job.jobId) showCounts(counts); }, signal);
     // First count: the bridge may register, or the job finish loading, after this mounts.
     void (async () => {
       for (let attempt = 0; attempt < 40 && !signal.aborted; attempt += 1) {
         try {
-          const { count } = await cvatEventBridge.call('tagCount', { jobId: job.jobId }, 1500);
-          if (!signal.aborted && clearCount.hidden) showTagCount(count);
+          const counts = await cvatEventBridge.call('tagCount', { jobId: job.jobId }, 1500);
+          if (!signal.aborted && !countsReady) showCounts(counts);
           return;
         } catch { await pause(1000); }
       }
