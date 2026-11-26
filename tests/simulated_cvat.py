@@ -287,7 +287,6 @@ def main():
                 reads = sim('takeReads()')
                 check(reads and all(low <= f <= high for f in reads), f'{mode}: only frames {low}-{high} read ({len(reads)} reads)')
                 check(sim('exports') == exports_before, f'{mode}: no whole-job export')
-                return status.inner_text()
 
             def assert_range_edit(name, low, high, before, after):
                 outside = [f for f in range(100) if not (low <= f <= high)]
@@ -301,11 +300,11 @@ def main():
             print('Nâng cao dialog (local only)')
             mark = server.mark()
             before = tags_by_frame()
-            message = run_edit(10, 30, 'add', target=1, expect_preview='Thêm 13')
+            run_edit(10, 30, 'add', target=1, expect_preview='Thêm 13')
             after = tags_by_frame()
             check(all(1 in after[str(f)] for f in range(10, 31) if f not in (12, 13)), 'add: every valid frame has event_smoke')
             check(after['13'] == before['13'], 'add: deleted frame 13 not tagged')
-            check('Chưa lưu lên server' in message, f'status explains saving: {message[:70]}…')
+            check(status.text_content() == '', 'successful Advanced Apply shows no toolbar notice')
             assert_range_edit('add', 10, 30, before, after)
             badge_matches('after Apply')
 
@@ -450,7 +449,9 @@ def main():
                 const commit = annotations.commit;
                 annotations.commit = async () => {
                     annotations.commit = commit;
-                    await new Promise((_, reject) => { window.failApply = () => reject(new Error('Test retry')); });
+                    await new Promise((_, reject) => {
+                        window.failApply = () => reject(new Error('HTTP 503: origin is overloaded or misconfigured.'));
+                    });
                 };
             }""")
             refreshes = sim('refreshes')
@@ -460,7 +461,7 @@ def main():
                   panel.locator('button:enabled').count() == 0, 'Apply locks marks, choices and controls')
             page.keyboard.press('Enter')
             page.evaluate('window.failApply()')
-            page.wait_for_function('document.querySelector(".cvat-quick-info").textContent.includes("Test retry")')
+            page.wait_for_function('document.querySelector(".cvat-quick-info").textContent.includes("CVAT tạm thời không phản hồi")')
             check(quick_apply.is_enabled() and selected.count() == 3 and tags_by_frame() == before,
                   'failure keeps the entire draft and unlocks retry')
             # Unannounced native edit between preview and retry forces another review.
@@ -676,6 +677,13 @@ def main():
             check(not box.is_visible(), 'result message hides itself after 8 s')
             page.evaluate('document.getElementById("cvat-event-complete-status").textContent = "x"')
             check(box.is_visible(), 'message box visible again')
+            page.evaluate('document.getElementById("cvat-event-complete-status").textContent = "LongMessage".repeat(120)')
+            check(box.evaluate('''node => {
+                const text = node.querySelector('[role="status"]');
+                const close = node.querySelector('button');
+                return node.scrollWidth <= node.clientWidth && text.scrollHeight > text.clientHeight &&
+                    text.getBoundingClientRect().right < close.getBoundingClientRect().left;
+            }'''), 'long notices stay within the card and clear of the close button')
             page.locator('.cvat-event-status-close').click()
             check(not box.is_visible(), '× hides the message box at once')
             check(page.evaluate('sessionStorage.getItem("loads")') == '1', 'Clear All did not reload the page')
@@ -741,6 +749,7 @@ def main():
             before = tags_by_frame()
             phone_add.click()
             wait('window.__sim.count("tag", 3) === 98', 'whole-job add fills all eligible frames')
+            check(status.text_content() == '', 'whole-job Apply shows no toolbar notice')
             check(tags_by_frame() == expected_after(before, 0, 99, [('add', [], 3)], VALID),
                   'whole-job add affects only Phone and skips deleted frames')
             page.once('dialog', lambda d: d.dismiss())
@@ -826,7 +835,10 @@ def main():
             workspace = page.locator('.cvat-workspace-selector .ant-select-selection-item')
             workspace.evaluate("n => n.textContent = 'Standard'")
             page.keyboard.press('Control+a')
-            check(native() == ['a'] and start.text_content() == 'Start 0', 'Standard receives native Ctrl+A')
+            marks = page.evaluate('JSON.parse(sessionStorage.getItem("cvat-event-range:77"))')
+            received = native()
+            check(received == ['a'] and marks == {'start': 0, 'end': 99},
+                  f'Standard receives native Ctrl+A and keeps the saved marks ({received}, {marks})')
             page.evaluate('window.getSelection().removeAllRanges()')
             workspace.evaluate("n => n.textContent = 'Tag annotation'")
             page.keyboard.press('Control+a')

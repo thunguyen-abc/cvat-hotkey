@@ -450,11 +450,11 @@
       clearTimeout(hideTimer);
     }, { once: true });
 
-    async function runEdit(progress, edit) {
+    async function runEdit(edit) {
       if (signal.aborted || button.disabled || clearButton.disabled) return;
       button.disabled = clearButton.disabled = true;
       syncEditButtons();
-      notify(progress, 'progress');
+      notify('');
       try {
         await edit();
       } catch (error) {
@@ -475,33 +475,25 @@
       const operation = mode === 'add' ? { mode, targets: [id] } : { mode, sources: [id] };
       const change = planCVATRangeBatch({ ...snapshot, operations: [operation] });
       const count = change.create.length + change.delete.length;
-      if (!count) {
-        notify('Không có thay đổi cho ' + label + ' trong job này.');
-        return;
-      }
-      if (mode === 'remove' && !window.confirm('Xóa ' + count + ' tag ' + label + ' khỏi toàn bộ job đang mở?')) {
-        notify('');
-        return;
-      }
+      if (!count) return;
+      if (mode === 'remove' && !window.confirm('Xóa ' + count + ' tag ' + label + ' khỏi toàn bộ job đang mở?')) return;
       const result = await cvatEventBridge.call('applyRange', {
         ...args, low: snapshot.low, high: snapshot.high, key: snapshot.key,
         create: change.create, remove: change.delete.map((item) => item.clientID),
       }, 120000);
       if (signal.aborted) return;
       if (result.stale) throw new Error('Tag trong job vừa thay đổi. Kiểm tra rồi bấm lại.');
-      notify((mode === 'add' ? 'Đã thêm ' : 'Đã xóa ') + count + ' tag ' + label + '. ' + describeCVATSave(result.save));
     }
     for (const counter of counters) {
-      counter.add.onclick = () => { void runEdit('Đang đọc tag của job…', () => editJobEvent(counter, 'add')); };
-      counter.remove.onclick = () => { void runEdit('Đang đọc tag của job…', () => editJobEvent(counter, 'remove')); };
+      counter.add.onclick = () => { void runEdit(() => editJobEvent(counter, 'add')); };
+      counter.remove.onclick = () => { void runEdit(() => editJobEvent(counter, 'remove')); };
     }
     for (const [node, direction] of [[undo, 'undo'], [redo, 'redo']]) {
       node.onclick = () => {
-        void runEdit('Đang cập nhật lịch sử Apply…', async () => {
+        void runEdit(async () => {
           const result = await cvatEventBridge.call('replayRangeEdit', { jobId: job.jobId, direction }, 120000);
           if (signal.aborted) return;
           historyStatus = result.editHistory;
-          notify((direction === 'undo' ? 'Đã hoàn tác Apply. ' : 'Đã làm lại Apply. ') + describeCVATSave(result.save));
         });
       };
     }

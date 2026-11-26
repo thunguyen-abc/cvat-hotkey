@@ -7,7 +7,7 @@ This guide is for developers who continue work on this repository. User document
 - Repository: https://github.com/thunguyen-abc/cvat-hotkey, branch `main`.
 - Platform: Chrome extension, Manifest V3, installed with **Load unpacked**.
 - Target site: https://cvat-tai.abcstudio.online. Reference job: `/tasks/681/jobs/6306`.
-- Release baseline: `v1.8.1` (two-row Quickstart, whole-job event actions and independent Apply Undo/Redo). Check GitHub Releases before choosing the next version.
+- Release baseline: `v1.8.2` (removes Apply completion notices and improves error layout). Check GitHub Releases before choosing the next version.
 
 The extension adds features to the existing CVAT annotation UI. It does not need any change to the CVAT server. Continue with this codebase; do not rewrite it.
 

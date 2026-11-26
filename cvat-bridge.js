@@ -483,7 +483,12 @@
       (result) => reply({ ok: true, result }),
       (error) => {
         if (!(error instanceof BridgeError)) console.warn('CVAT Event Hotkeys bridge:', error);
-        reply({ ok: false, error: error instanceof BridgeError ? error.message : `Lỗi CVAT: ${error?.message || error}` });
+        const message = String(error?.message || error);
+        const gatewayError = /(?:^|\D)(?:502|503|504|520|521|522|523|524)(?!\d)|origin is overloaded|bad gateway|service unavailable|gateway time.?out/i;
+        const summary = gatewayError.test(message) ? 'CVAT tạm thời không phản hồi. Vui lòng thử lại sau.'
+          : /<!doctype\s+html|<html[\s>]/i.test(message) ? 'CVAT trả về phản hồi không hợp lệ.'
+            : `Lỗi CVAT: ${message}`;
+        reply({ ok: false, error: error instanceof BridgeError ? message : summary });
       },
     );
   });

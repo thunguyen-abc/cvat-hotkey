@@ -339,8 +339,6 @@ function attachCVATRangeEditor(control, slider, anchor) {
         state.notice = staleNotice;
       } else {
         applied();
-        apply.textContent = 'Đã áp dụng';
-        setTimeout(() => { apply.textContent = 'Áp dụng'; }, 900);
       }
     } catch (error) {
       if (jobSignal.aborted) return;
@@ -675,9 +673,6 @@ function attachCVATRangeEditor(control, slider, anchor) {
           return;
         }
         applied();
-        const { add, replace, remove } = change.counts;
-        control.notify('Frame ' + low + '–' + high + ': thêm ' + add + ', đổi ' + replace + ', xóa ' +
-          remove + ' tag. ' + describeCVATSave(result.save));
         close();
       } catch (error) {
         busy = false;
