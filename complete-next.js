@@ -339,17 +339,36 @@
     eventCounts.className = 'cvat-job-event-counts';
     eventCounts.setAttribute('role', 'group');
     eventCounts.setAttribute('aria-label', 'Tổng số event trong job');
+    const makeButton = (text, className, label) => {
+      const node = document.createElement('button');
+      node.type = 'button';
+      node.className = 'ant-btn ant-btn-default ant-btn-sm ' + className;
+      node.textContent = text;
+      node.title = label;
+      node.setAttribute('aria-label', label);
+      node.disabled = true;
+      return node;
+    };
     const counters = CVAT_EVENT_LABELS.map((name, index) => {
       const item = document.createElement('span');
       item.className = 'cvat-job-event-count';
-      item.title = name;
       item.dataset.event = name;
+      const label = ['Smoke', 'Drinking', 'Phone'][index];
       const value = document.createElement('strong');
       value.textContent = '—';
-      item.append(['Smoke', 'Drinking', 'Phone'][index], value);
+      const add = makeButton('+', 'cvat-job-event-add', 'Thêm ' + label + ' cho toàn job');
+      const remove = makeButton('−', 'cvat-job-event-remove', 'Xóa ' + label + ' khỏi toàn job');
+      item.append(label, value, add, remove);
       eventCounts.append(item);
-      return { name, value };
+      return { name, label, value, add, remove };
     });
+    const historyButtons = document.createElement('span');
+    historyButtons.className = 'cvat-job-edit-history';
+    historyButtons.setAttribute('role', 'group');
+    historyButtons.setAttribute('aria-label', 'Lịch sử Apply của extension');
+    const undo = makeButton('Undo Apply', 'cvat-job-undo', 'Undo lần Apply của extension');
+    const redo = makeButton('Redo Apply', 'cvat-job-redo', 'Redo lần Apply của extension');
+    historyButtons.append(undo, redo);
     const statusBox = document.createElement('span');
     statusBox.className = 'cvat-event-complete-status';
     const status = document.createElement('span');
@@ -393,20 +412,95 @@
       clearButton.title = `Job có ${count} tag, tính cả thay đổi chưa lưu`;
       clearButton.setAttribute('aria-label', `Clear All Tags (${count} tag)`);
     };
-    meta.append(eventCounts, statusBox);
+    meta.append(eventCounts, historyButtons, statusBox);
     wrapper.append(button, clearButton, meta);
     menu.after(wrapper);
     controls = { job, menu, wrapper, button, clearButton, status, notify, showTagCount, controller: new AbortController() };
     const control = controls;
     const { signal } = control.controller;
-    let countsReady = false;
-    function showCounts({ count, byLabel }) {
-      showTagCount(count);
+    let latestCounts;
+    let historyStatus;
+    function syncEditButtons() {
+      const busy = button.disabled || clearButton.disabled;
+      for (const { name, add, remove } of counters) {
+        const count = latestCounts?.byLabel?.[name];
+        add.disabled = busy || !Number.isInteger(count);
+        remove.disabled = busy || !(count > 0);
+      }
+      undo.disabled = busy || !historyStatus?.undo;
+      redo.disabled = busy || !historyStatus?.redo;
+    }
+    function showCounts(counts) {
+      latestCounts = counts;
+      historyStatus = counts.editHistory;
+      showTagCount(counts.count);
       for (const { name, value } of counters) {
-        const text = String(byLabel?.[name] ?? 0);
+        const text = String(counts.byLabel?.[name] ?? 0);
         if (value.textContent !== text) value.textContent = text;
       }
-      countsReady = true;
+      syncEditButtons();
+    }
+    const lockObserver = new MutationObserver(syncEditButtons);
+    for (const action of [button, clearButton]) lockObserver.observe(action, { attributeFilter: ['disabled'] });
+    signal.addEventListener('abort', () => {
+      lockObserver.disconnect();
+      clearTimeout(hideTimer);
+    }, { once: true });
+
+    async function runEdit(progress, edit) {
+      if (signal.aborted || button.disabled || clearButton.disabled) return;
+      button.disabled = clearButton.disabled = true;
+      syncEditButtons();
+      notify(progress, 'progress');
+      try {
+        await edit();
+      } catch (error) {
+        if (!signal.aborted) notify(error.message, 'error');
+      } finally {
+        if (!signal.aborted) {
+          button.disabled = clearButton.disabled = false;
+          syncEditButtons();
+        }
+      }
+    }
+    async function editJobEvent({ name, label }, mode) {
+      const args = { jobId: job.jobId };
+      const snapshot = await cvatEventBridge.call('rangeSnapshot', { ...args, wholeJob: true }, 120000);
+      if (signal.aborted) return;
+      const id = snapshot.labels.find((candidate) => candidate.name === name)?.id;
+      if (id === undefined) throw new Error('Job thiếu nhãn ' + name + '.');
+      const operation = mode === 'add' ? { mode, targets: [id] } : { mode, sources: [id] };
+      const change = planCVATRangeBatch({ ...snapshot, operations: [operation] });
+      const count = change.create.length + change.delete.length;
+      if (!count) {
+        notify('Không có thay đổi cho ' + label + ' trong job này.');
+        return;
+      }
+      if (mode === 'remove' && !window.confirm('Xóa ' + count + ' tag ' + label + ' khỏi toàn bộ job đang mở?')) {
+        notify('');
+        return;
+      }
+      const result = await cvatEventBridge.call('applyRange', {
+        ...args, low: snapshot.low, high: snapshot.high, key: snapshot.key,
+        create: change.create, remove: change.delete.map((item) => item.clientID),
+      }, 120000);
+      if (signal.aborted) return;
+      if (result.stale) throw new Error('Tag trong job vừa thay đổi. Kiểm tra rồi bấm lại.');
+      notify((mode === 'add' ? 'Đã thêm ' : 'Đã xóa ') + count + ' tag ' + label + '. ' + describeCVATSave(result.save));
+    }
+    for (const counter of counters) {
+      counter.add.onclick = () => { void runEdit('Đang đọc tag của job…', () => editJobEvent(counter, 'add')); };
+      counter.remove.onclick = () => { void runEdit('Đang đọc tag của job…', () => editJobEvent(counter, 'remove')); };
+    }
+    for (const [node, direction] of [[undo, 'undo'], [redo, 'redo']]) {
+      node.onclick = () => {
+        void runEdit('Đang cập nhật lịch sử Apply…', async () => {
+          const result = await cvatEventBridge.call('replayRangeEdit', { jobId: job.jobId, direction }, 120000);
+          if (signal.aborted) return;
+          historyStatus = result.editHistory;
+          notify((direction === 'undo' ? 'Đã hoàn tác Apply. ' : 'Đã làm lại Apply. ') + describeCVATSave(result.save));
+        });
+      };
     }
     cvatEventBridge.onTagsChanged((counts) => { if (counts.jobId === job.jobId) showCounts(counts); }, signal);
     // First count: the bridge may register, or the job finish loading, after this mounts.
@@ -414,7 +508,7 @@
       for (let attempt = 0; attempt < 40 && !signal.aborted; attempt += 1) {
         try {
           const counts = await cvatEventBridge.call('tagCount', { jobId: job.jobId }, 1500);
-          if (!signal.aborted && !countsReady) showCounts(counts);
+          if (!signal.aborted && !latestCounts) showCounts(counts);
           return;
         } catch { await pause(1000); }
       }

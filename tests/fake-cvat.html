@@ -62,11 +62,13 @@
   }
 
   class ObjectState {
-    constructor({ objectType, label, frame, clientID }) {
+    constructor({ objectType, label, frame, clientID, attributes, source }) {
       this.objectType = objectType;
       this.label = label;
       this.frame = frame;
       this.clientID = clientID;
+      this.attributes = attributes ?? {};
+      this.source = source ?? 'manual';
     }
     async delete(frame, force) {
       const object = objects.get(this.clientID);
@@ -78,6 +80,7 @@
   }
   const stateOf = (object) => new ObjectState({
     objectType: object.type, label: labels.find((label) => label.id === object.labelId), frame: object.frame, clientID: object.clientID,
+    attributes: object.attributes, source: object.source,
   });
   const live = () => [...objects.values()].filter((object) => !object.removed);
 
@@ -100,6 +103,22 @@
         }
         actionCount += 1;
       },
+      async commit(added, removed) {
+        if (added.shapes.length || added.tracks.length || removed.shapes.length || removed.tracks.length) {
+          throw new Error('only tag commits are used by the extension');
+        }
+        for (const tag of removed.tags) {
+          const object = objects.get(tag.clientID);
+          if (!object || object.removed || object.type !== 'tag') throw new Error('bad removal');
+        }
+        for (const tag of added.tags) {
+          const object = add('tag', tag.frame, tag.label_id, null);
+          object.source = tag.source;
+          object.attributes = Object.fromEntries(tag.attributes.map(({ spec_id, value }) => [spec_id, value]));
+        }
+        for (const tag of removed.tags) objects.get(tag.clientID).removed = true;
+        actionCount += 1;
+      },
       hasUnsavedChanges() { return [...objects.values()].some((o) => (o.removed && o.serverID) || (!o.removed && !o.serverID)); },
       // Like cvat-core: counts of the live in-memory collection, no serialization.
       async statistics() {
@@ -118,7 +137,11 @@
       },
     },
     // Like CVAT: [action, frame] pairs, capped, no unique ids.
-    actions: { async get() { return { undo: [['Action', actionCount]], redo: [] }; } },
+    actions: {
+      async get() { return { undo: [['Action', actionCount]], redo: [] }; },
+      async undo() { throw new Error('extension must not call CVAT Undo'); },
+      async redo() { throw new Error('extension must not call CVAT Redo'); },
+    },
   };
 
   const state = {

@@ -12,6 +12,7 @@
   const RESPONSE = 'cvat-event-hotkeys:response';
   const READY = 'cvat-event-hotkeys:ready';
   const CHANGED = 'cvat-event-hotkeys:tags-changed';
+  const editHistory = new WeakMap();
   let plugin = null;
 
   function register() {
@@ -50,6 +51,11 @@
   function assertIdle(state) {
     if (state.annotation?.annotations?.saving?.uploading) fail('CVAT đang lưu. Đợi lưu xong rồi thử lại.');
     if (state.annotation?.player?.frame?.fetching) fail('CVAT đang tải frame. Đợi tải xong rồi thử lại.');
+  }
+
+  function historyStatus(job) {
+    const history = editHistory.get(job);
+    return { undo: Boolean(history?.undo.length), redo: Boolean(history?.redo.length) };
   }
 
   function integer(value, name) {
@@ -92,7 +98,9 @@
       try {
         const counts = await countTags(job);
         if (seen !== snapshot) return;
-        document.dispatchEvent(new CustomEvent(CHANGED, { detail: JSON.stringify({ jobId: job.id, ...counts }) }));
+        document.dispatchEvent(new CustomEvent(CHANGED, {
+          detail: JSON.stringify({ jobId: job.id, ...counts, editHistory: historyStatus(job) }),
+        }));
       } catch { /* The next change announces again. */ }
     };
     const check = () => {
@@ -167,7 +175,8 @@
   }
 
   function snapshotOf(job, range) {
-    return { labels: tagLabels(job), tags: range.tags, addFrames: range.addFrames, key: rangeKey(range.tags), read: range.read };
+    const key = JSON.stringify([rangeKey(range.tags), range.addFrames]);
+    return { labels: tagLabels(job), tags: range.tags, addFrames: range.addFrames, key, read: range.read };
   }
 
   function clearSummary(tags) {
@@ -188,32 +197,161 @@
     };
   }
 
-  // plan.create: [{ frame, label }] with CVAT Label objects. statesOf(frame) returns the
-  // frame's tag ObjectStates (already read for the range).
-  async function applyPlan(job, plan, statesOf) {
+  // Clear All Tags remains separate from range Apply history.
+  async function deleteJobTags(job, tags) {
     const tagType = plugin.core.enums.ObjectType.TAG;
     const byFrame = new Map();
-    for (const { clientID, frame } of plan.delete) {
+    for (const { clientID, frame } of tags) {
       if (!byFrame.has(frame)) byFrame.set(frame, new Set());
       byFrame.get(frame).add(clientID);
     }
     let removed = 0;
     let visited = 0;
     for (const [frame, ids] of byFrame) {
-      for (const state of await statesOf(frame)) {
+      for (const state of await job.annotations.get(frame, false, [])) {
         if (state.objectType === tagType && ids.has(state.clientID) && await state.delete(frame, true)) removed += 1;
       }
       visited += 1;
       if (visited % 100 === 0) await yieldToBrowser();
     }
-    if (plan.create.length) {
-      // One put: one Undo step for all new tags.
-      const states = plan.create.map(({ frame, label }) => new plugin.core.classes.ObjectState({
-        objectType: tagType, label, frame,
-      }));
-      await job.annotations.put(states);
+    return removed;
+  }
+
+  const tagPair = ({ frame, label_id }) => frame + '/' + label_id;
+  const tagValue = ({ frame, label_id, source, attributes }) => JSON.stringify([frame, label_id, source, attributes]);
+  const compareTags = (tags) => JSON.stringify(tags.map(tagValue).sort());
+  const serializeTag = (state) => ({
+    clientID: state.clientID,
+    frame: state.frame,
+    label_id: state.label.id,
+    group: 0,
+    source: state.source ?? 'manual',
+    attributes: Object.entries(state.attributes ?? {}).map(([id, value]) => ({ spec_id: Number(id), value })),
+  });
+
+  async function commitTags(job, added, removed) {
+    const frame = context(job.id).state.annotation.player.frame.number;
+    await job.annotations.commit(
+      { tags: added.map(({ clientID, ...tag }) => tag), shapes: [], tracks: [] },
+      { tags: removed, shapes: [], tracks: [] },
+      frame,
+    );
+  }
+
+  async function applyRange({ jobId, low, high, key, create, remove }) {
+    const { state, job } = context(jobId);
+    assertIdle(state);
+    const revision = state.annotation.annotations.history;
+    integer(low, 'low');
+    integer(high, 'high');
+    const live = await readRange(job, low, high, true);
+    const latest = context(jobId).state;
+    assertIdle(latest);
+    const snapshot = snapshotOf(job, live);
+    if (snapshot.key !== key || revision !== latest.annotation.annotations.history) {
+      return { stale: true, snapshot };
     }
-    return { removed, created: plan.create.length };
+    if (!Array.isArray(create) || !Array.isArray(remove)) fail('Kế hoạch không hợp lệ.');
+    const liveTags = new Map(live.tags.map((tag) => [tag.clientID, tag]));
+    const removing = new Set(remove);
+    if (removing.size !== remove.length) fail('Kế hoạch xóa tag bị trùng.');
+    const deleting = remove.map((clientID) => liveTags.get(clientID) ?? fail('Tag cần xóa không còn trong khoảng.'));
+    const labels = new Map(job.labels.filter((label) => ['any', 'tag'].includes(label.type)).map((label) => [label.id, label]));
+    const kept = new Set(live.tags.filter((tag) => !removing.has(tag.clientID)).map((tag) => tag.frame + '/' + tag.labelId));
+    const added = create.map(({ frame, labelId }) => {
+      const label = labels.get(labelId) ?? fail('Không tìm thấy tag đích trong job.');
+      const pair = frame + '/' + labelId;
+      if (!Number.isInteger(frame) || frame < Math.max(low, job.startFrame) ||
+          frame > Math.min(high, job.stopFrame) || kept.has(pair)) fail('Kế hoạch tạo tag không hợp lệ.');
+      kept.add(pair);
+      return {
+        frame, label_id: labelId, group: 0, source: 'manual',
+        attributes: (label.attributes ?? []).map(({ id, defaultValue }) => ({ spec_id: id, value: defaultValue }))
+          .sort((a, b) => a.spec_id - b.spec_id),
+      };
+    });
+    const result = { removed: deleting.length, created: added.length };
+    if (!deleting.length && !added.length) return { ...result, save: saveInfo(job) };
+
+    const frames = new Set([...deleting.map((tag) => tag.frame), ...added.map((tag) => tag.frame)]);
+    const pairs = new Set([...deleting.map((tag) => tag.frame + '/' + tag.labelId), ...added.map(tagPair)]);
+    const before = [...frames].flatMap((frame) => live.states.get(frame).map(serializeTag)).filter((tag) => pairs.has(tagPair(tag)));
+    const after = [...before.filter((tag) => !removing.has(tag.clientID)), ...added];
+    const cached = cache.frames;
+    await commitTags(job, added, before.filter((tag) => removing.has(tag.clientID)));
+    const history = editHistory.get(job) ?? { undo: [], redo: [] };
+    history.undo.push({ before, after, frames, pairs });
+    history.redo = [];
+    editHistory.set(job, history);
+    await refresh(job);
+
+    // Keep untouched cached frames in the active range and re-read the changed ones.
+    const entries = frameCache(job);
+    for (const [frame, entry] of cached) {
+      if (frame >= low && frame <= high && !frames.has(frame)) entries.set(frame, entry);
+    }
+    let read = 0;
+    for (const frame of frames) {
+      entries.set(frame, (await readFrame(job, frame)).entry);
+      if (++read % 200 === 0) await yieldToBrowser();
+    }
+    return { ...result, save: saveInfo(job) };
+  }
+
+  // Replay the extension's own tag changes. Identity can change when an earlier edit is
+  // undone, so match serialized tag values within the affected frame/label pairs.
+  async function replayRangeEdit({ jobId, direction }) {
+    const { state, job } = context(jobId);
+    assertIdle(state);
+    const revision = state.annotation.annotations.history;
+    if (!['undo', 'redo'].includes(direction)) fail('Thao tác lịch sử không hợp lệ.');
+    const history = editHistory.get(job);
+    const entry = history?.[direction].at(-1);
+    if (!entry) fail('Chưa có thao tác Apply để ' + direction + '.');
+    const undo = direction === 'undo';
+    const expected = undo ? entry.after : entry.before;
+    const desired = undo ? entry.before : entry.after;
+    const current = [];
+    const valid = new Set();
+    let read = 0;
+    for (const frame of entry.frames) {
+      const result = await readFrame(job, frame);
+      if (result.entry.valid) valid.add(frame);
+      current.push(...result.states.map(serializeTag).filter((tag) => entry.pairs.has(tagPair(tag))));
+      if (++read % 200 === 0) await yieldToBrowser();
+    }
+    const latest = context(jobId).state;
+    assertIdle(latest);
+    if (revision !== latest.annotation.annotations.history ||
+        compareTags(current) !== compareTags(expected) || desired.some((tag) => !valid.has(tag.frame))) {
+      fail('Tag hoặc frame liên quan đã thay đổi. Không thể ' + direction + ' thao tác Apply này.');
+    }
+
+    const matching = new Map();
+    for (const tag of current) {
+      const key = tagValue(tag);
+      if (!matching.has(key)) matching.set(key, []);
+      matching.get(key).push(tag);
+    }
+    const added = desired.filter((tag) => !matching.get(tagValue(tag))?.pop());
+    const removed = [...matching.values()].flat();
+    await commitTags(job, added, removed);
+    history[direction].pop();
+    history[undo ? 'redo' : 'undo'].push(entry);
+    cache = null;
+    await refresh(job);
+    return { editHistory: historyStatus(job), save: saveInfo(job) };
+  }
+
+  let rangeEditBusy = false;
+  async function runRangeEdit(edit) {
+    if (rangeEditBusy) fail('Một thao tác chỉnh tag đang chạy.');
+    rangeEditBusy = true;
+    try {
+      return await edit();
+    } finally {
+      rangeEditBusy = false;
+    }
   }
 
   // Show the changed collection on the current frame. This is what CVAT's own
@@ -257,9 +395,11 @@
       };
     },
 
-    async rangeSnapshot({ jobId, low, high }) {
+    async rangeSnapshot({ jobId, low, high, wholeJob = false }) {
       const { job } = context(jobId);
-      return snapshotOf(job, await readRange(job, integer(low, 'low'), integer(high, 'high')));
+      const from = integer(wholeJob ? job.startFrame : low, 'low');
+      const to = integer(wholeJob ? job.stopFrame : high, 'high');
+      return { ...snapshotOf(job, await readRange(job, from, to)), low: from, high: to };
     },
 
     // The content script plans all operations from the snapshot (range-plan.js) and sends
@@ -267,42 +407,11 @@
     // with the snapshot key. The range is re-read live and the whole plan is re-checked
     // before anything changes; then it is applied in one go.
     async applyRange({ jobId, low, high, key, create, remove }) {
-      const { state, job } = context(jobId);
-      assertIdle(state);
-      integer(low, 'low');
-      integer(high, 'high');
-      const live = await readRange(job, low, high, true);
-      const snapshot = snapshotOf(job, live);
-      if (snapshot.key !== key) return { stale: true, snapshot };
-      if (!Array.isArray(create) || !Array.isArray(remove)) fail('Kế hoạch không hợp lệ.');
-      const current = new Map(live.tags.map((tag) => [tag.clientID, tag]));
-      if (new Set(remove).size !== remove.length) fail('Kế hoạch xóa tag bị trùng.');
-      const deleting = remove.map((clientID) => current.get(clientID) ?? fail('Tag cần xóa không còn trong khoảng.'));
-      const removing = new Set(remove);
-      const labels = new Map(job.labels.filter((label) => ['any', 'tag'].includes(label.type)).map((label) => [label.id, label]));
-      // (frame, label) pairs that will exist: kept tags plus planned ones. No duplicates allowed.
-      const pairs = new Set(live.tags.filter((tag) => !removing.has(tag.clientID)).map((tag) => tag.frame + '/' + tag.labelId));
-      const creating = create.map((item) => {
-        const label = labels.get(item?.labelId) ?? fail('Không tìm thấy tag đích trong job.');
-        const pair = item.frame + '/' + item.labelId;
-        if (!Number.isInteger(item.frame) || item.frame < low || item.frame > high || pairs.has(pair)) {
-          fail('Kế hoạch tạo tag không hợp lệ.');
-        }
-        pairs.add(pair);
-        return { frame: item.frame, label };
-      });
-      const before = cache.frames;
-      const result = await applyPlan(job, { delete: deleting, create: creating }, async (frame) => live.states.get(frame) ?? []);
-      await refresh(job);
-      // Our own change moved the history key. Keep the untouched frames of the range and
-      // re-read only the frames that changed.
-      const touched = new Set([...deleting.map((tag) => tag.frame), ...creating.map((item) => item.frame)]);
-      const frames = frameCache(job);
-      for (const [frame, entry] of before) {
-        if (frame >= low && frame <= high && !touched.has(frame)) frames.set(frame, entry);
-      }
-      for (const frame of touched) frames.set(frame, (await readFrame(job, frame)).entry);
-      return { ...result, save: saveInfo(job) };
+      return runRangeEdit(() => applyRange({ jobId, low, high, key, create, remove }));
+    },
+
+    async replayRangeEdit(params) {
+      return runRangeEdit(() => replayRangeEdit(params));
     },
 
     // Complete & Next step 1: is CVAT saving, and is anything left unsaved?
@@ -336,7 +445,7 @@
 
     async tagCount({ jobId }) {
       const { job } = context(jobId);
-      return countTags(job);
+      return { ...await countTags(job), editHistory: historyStatus(job) };
     },
 
     async clearSnapshot({ jobId }) {
@@ -355,13 +464,11 @@
       const tags = await readAllTags(job);
       const summary = clearSummary(tags);
       if (typeof key === 'string' ? summary.key !== key : tags.length !== expected) return { stale: true, ...summary };
-      const tagType = plugin.core.enums.ObjectType.TAG;
-      const result = await applyPlan(job, { delete: tags, create: [] },
-        async (frame) => (await job.annotations.get(frame, false, [])).filter((item) => item.objectType === tagType));
+      const removed = await deleteJobTags(job, tags);
       await refresh(job);
       const frames = frameCache(job);
       for (const [frame, entry] of before) frames.set(frame, { tags: [], valid: entry.valid });
-      return { ...result, save: saveInfo(job) };
+      return { removed, created: 0, save: saveInfo(job) };
     },
   };
 

@@ -8,12 +8,12 @@ Checks:
   - Nâng cao dialog (add / replace / remove selected / remove all, several at once) changes
     only tags inside the range, never duplicates, keeps shapes, makes no request and no page
     reload, and keeps Start/End.
-  - Quickstart panel: exactly three event boxes, 4/5 marks, Alt+1-3 toggles, = / - queue,
+  - Quickstart panel: two exclusive event rows, 4/5 marks, Alt(+Shift)+1-3 toggles,
     Enter applies; keys it takes never reach CVAT's shortcut handler, other keys do.
   - A change between preview and Apply is detected instead of applied blindly.
   - CVAT's own Save then uploads only the changed tags.
   - Clear All Tags shows the job's tag count and clears locally, like Apply: no request, no
-    reload, view refreshed in place, Start/End, queue and range cache kept.
+    reload, view refreshed in place, Start/End, draft and range cache kept.
   - Complete & Next uses the in-memory session, saves through CVAT, retries a 503 politely,
     finds the next job with one filtered page_size=1 query, and opens it.
 
@@ -161,11 +161,11 @@ def main():
             panel = page.locator('.cvat-quick-panel')
             frame_position = panel.locator('.cvat-quick-frame-position')
             start, end, advanced = (panel.locator(c) for c in ('.cvat-quick-start', '.cvat-quick-end', '.cvat-quick-advanced'))
-            rows = panel.locator('.cvat-quick-row')
+            selected = panel.locator('.cvat-quick-event[aria-pressed="true"]')
             info = panel.locator('.cvat-quick-info')
             quick_apply = panel.locator('.cvat-quick-apply')
-            event = lambda name: panel.locator(f'.cvat-quick-event[data-event="{name}"]')
-            pressed = lambda name: event(name).get_attribute('aria-pressed') == 'true'
+            event = lambda name, mode='add': panel.locator(f'.cvat-quick-event[data-event="{name}"][data-mode="{mode}"]')
+            pressed = lambda name, mode='add': event(name, mode).get_attribute('aria-pressed') == 'true'
             blur = lambda: page.evaluate('document.activeElement && document.activeElement.blur()')
             native = lambda: page.evaluate('window.__sim.nativeKeys.splice(0)')
             EVENTS = ('event_smoke', 'event_drinking', 'event_phone')
@@ -239,7 +239,7 @@ def main():
             check(frame_position.inner_text() == '0/200', 'a job starting at 6400 starts at position 0/200')
             panel.locator('.cvat-quick-toggle').click()
             check(frame_position.is_visible() and start.is_visible(), 'position and marks stay visible when collapsed')
-            check(not panel.locator('.cvat-quick-results').is_visible(), 'Results collapses with the event controls')
+            check(not quick_apply.is_visible(), 'event controls and Apply collapse')
             panel.locator('.cvat-quick-toggle').click()
             page.evaluate("""() => {
                 const handle = document.querySelector('.cvat-player-slider [role="slider"]');
@@ -414,18 +414,15 @@ def main():
             viewport = page.viewport_size or page.evaluate('({width: innerWidth, height: innerHeight})')
             for width in (1366, 390, 320):
                 page.set_viewport_size({'width': width, 'height': 768})
-                events_box = panel.locator('.cvat-quick-events').bounding_box()
-                actions_box = panel.locator('.cvat-quick-actions').bounding_box()
-                results_box = panel.get_by_role('region', name='Kết quả').bounding_box()
-                check(actions_box['x'] > events_box['x'] + events_box['width'] and
-                      abs(actions_box['y'] - events_box['y']) < 1 and
-                      results_box['y'] > events_box['y'] + events_box['height'] and
-                      abs(results_box['x'] - events_box['x']) < 1 and
-                      abs(results_box['width'] - events_box['width']) < 1,
-                      f'{width}px: +/− sit beside events and Results aligns separately underneath')
+                for name in EVENTS:
+                    add_box = event(name).bounding_box()
+                    remove_box = event(name, 'remove').bounding_box()
+                    check(add_box['x'] == remove_box['x'] and add_box['width'] == remove_box['width'] and
+                          remove_box['y'] > add_box['y'] and add_box['height'] == remove_box['height'],
+                          f'{width}px: both {name} buttons share a column and size')
             page.set_viewport_size(viewport)
-            names = panel.locator('.cvat-quick-event-name').all_inner_texts()
-            check(names == list(EVENTS), f'exactly the three event boxes {names}')
+            check(panel.locator('.cvat-quick-event').all_inner_texts() == list(EVENTS) * 2 and
+                  panel.locator('.cvat-quick-results, .cvat-quick-queue').count() == 0, 'two direct rows replace Results')
             blur(); native()
             sim('setFrame(52)'); page.keyboard.press('4')
             sim('setFrame(68)'); page.keyboard.press('5')
@@ -434,61 +431,87 @@ def main():
             wait_ready()
             before = tags_by_frame()
             check(not any(pressed(n) for n in EVENTS), 'event boxes start off')
-            check(quick_apply.is_disabled() and panel.locator('.cvat-quick-add').is_disabled(),
-                  '+ and Apply locked with no event selected')
+            check(quick_apply.is_disabled(), 'empty draft disables Apply')
             event('event_smoke').click()
-            blur(); page.keyboard.press('Alt+3')
-            check(pressed('event_smoke') and pressed('event_phone') and not pressed('event_drinking'),
-                  'click and Alt+3 toggle the boxes; aria-pressed in sync')
-            page.keyboard.press('=')
-            check(rows.count() == 1 and rows.nth(0).get_attribute('data-mode') == 'add' and
-                  rows.nth(0).locator('.cvat-quick-names').inner_text() == 'event_smoke, event_phone',
-                  '= queues one + row with both selected events')
-            event('event_phone').click(); event('event_drinking').click()
-            check(rows.nth(0).locator('.cvat-quick-names').inner_text() == 'event_smoke, event_phone',
-                  'toggling afterwards keeps the queued row')
-            blur(); page.keyboard.press('='); page.keyboard.press('-')
-            check(rows.count() == 3 and rows.nth(2).get_attribute('data-mode') == 'remove' and
-                  rows.nth(2).locator('.cvat-quick-names').inner_text() == 'event_smoke, event_drinking', '- queues one − row')
-            rows.nth(1).locator('.cvat-quick-drop').click()
-            check(rows.count() == 2 and [rows.nth(i).get_attribute('data-mode') for i in range(2)] == ['add', 'remove'],
-                  '× drops the middle row')
-            preview = info.inner_text()
-            check(preview.startswith('Thêm ') and ' · Xóa ' in preview, f'panel preview shows the totals ({preview})')
+            check(event('event_smoke', 'remove').is_disabled(), 'add locks the opposite row')
+            blur(); page.keyboard.press('Alt+Shift+1')
+            check(pressed('event_smoke') and not pressed('event_smoke', 'remove'), 'opposite shortcut cannot switch mode')
+            page.keyboard.press('Alt+1')
+            check(event('event_smoke', 'remove').is_enabled(), 'deselect unlocks the other row')
+            page.keyboard.press('Alt+Shift+2')
+            page.keyboard.press('Alt+1')
+            page.keyboard.press('Alt+3')
+            check(event('event_drinking').is_disabled() and selected.count() == 3, 'two adds and one remove coexist')
+            check(tags_by_frame() == before, 'editing the draft makes no annotation changes')
+
+            # Fail once before commit; inspect locked controls while the promise is pending.
+            page.evaluate("""() => {
+                const annotations = window.__sim.job.annotations;
+                const commit = annotations.commit;
+                annotations.commit = async () => {
+                    annotations.commit = commit;
+                    await new Promise((_, reject) => { window.failApply = () => reject(new Error('Test retry')); });
+                };
+            }""")
             refreshes = sim('refreshes')
             blur(); page.keyboard.press('Enter')
-            wait('document.querySelectorAll(".cvat-quick-row").length === 0', 'Enter applied the queue')
-            after = tags_by_frame()
-            ops = [('add', [], 1), ('add', [], 3), ('remove', [1, 2], None)]
-            check(after == expected_after(before, 52, 68, ops, VALID), 'panel Apply (+ then − of an added event) matches the model')
-            check('Chưa lưu lên server' in status.inner_text(), 'panel Apply reports the save state')
-            check(start.inner_text() == 'Start 52' and end.inner_text() == 'End 68', 'panel Apply keeps Start/End')
-            check(native() == [], 'Alt+3, =, - and Enter taken by Quickstart, none passed to CVAT')
+            page.wait_for_function('typeof window.failApply === "function"')
+            check(quick_apply.is_disabled() and quick_apply.get_attribute('aria-busy') == 'true' and
+                  panel.locator('button:enabled').count() == 0, 'Apply locks marks, choices and controls')
             page.keyboard.press('Enter')
-            page.wait_for_timeout(300)
-            check(sim('refreshes') == refreshes + 1, 'a second Enter with an empty queue applies nothing')
+            page.evaluate('window.failApply()')
+            page.wait_for_function('document.querySelector(".cvat-quick-info").textContent.includes("Test retry")')
+            check(quick_apply.is_enabled() and selected.count() == 3 and tags_by_frame() == before,
+                  'failure keeps the entire draft and unlocks retry')
+            # Unannounced native edit between preview and retry forces another review.
+            missing = next(f for f in range(52, 69) if 3 not in sim(f'tagsOn({f})'))
+            sim(f'addTag({missing}, 3)')
+            before = tags_by_frame()
+            quick_apply.click()
+            page.wait_for_function('document.querySelector(".cvat-quick-info").textContent.includes("vừa thay đổi")')
+            check(selected.count() == 3 and tags_by_frame() == before, 'stale preview is refreshed with choices intact')
+            blur(); page.keyboard.press('Enter')
+            page.wait_for_function("""!document.querySelector('.cvat-quick-event[aria-pressed="true"]')""")
+            ops = [('add', [], 1), ('add', [], 3), ('remove', [2], None)]
+            check(tags_by_frame() == expected_after(before, 52, 68, ops, VALID), 'one mixed Apply matches the model')
+            check(start.inner_text() == 'Start 52' and end.inner_text() == 'End 68' and frame_position.inner_text() == '68/100',
+                  'Apply keeps both marks and the current frame')
+            check(info.inner_text() == '' and quick_apply.is_disabled(), 'success resets the controls silently')
+            check(native() == [], 'panel shortcuts and repeated Enter during Apply stay out of CVAT')
+            page.keyboard.press('Enter')
+            check(sim('refreshes') == refreshes + 1, 'repeated Enter produces only one commit')
             native()
             badge_matches('after panel Apply')
             event_counts_match('job-wide event counters include unsaved Apply changes')
-
             wait_ready()
-            page.keyboard.press('-')
-            check(rows.count() == 0 and quick_apply.is_disabled() and 'Không có tag' in info.inner_text(),
-                  '− skips a no-op instead of adding an invalid row')
-
-            blur(); page.keyboard.press('=')
+            mixed_result = tags_by_frame()
+            page.locator('.cvat-job-undo').click()
+            page.wait_for_function('!document.querySelector(".cvat-job-redo").disabled')
+            check(tags_by_frame() == before, 'one extension Undo reverses every part of a mixed range Apply')
+            page.locator('.cvat-job-redo').click()
+            page.wait_for_function('!document.querySelector(".cvat-job-undo").disabled && document.querySelector(".cvat-job-redo").disabled')
+            check(tags_by_frame() == mixed_result, 'one extension Redo restores the full mixed batch')
+            wait_ready()
+            event('event_smoke').click()
+            check(quick_apply.is_disabled(), 'adding a label present on every eligible frame disables Apply')
+            event('event_smoke').click()
+            event('event_drinking', 'remove').click()
+            check(quick_apply.is_disabled(), 'removing only absent tags disables Apply')
+            event('event_drinking', 'remove').click()
+            event('event_smoke', 'remove').click()
+            check(quick_apply.is_enabled(), 'fresh draft can undo the previous add by selecting remove')
             sim('setFrame(80)')
+            blur()
             page.once('dialog', lambda d: d.dismiss())
             page.keyboard.press('5')
-            check(end.inner_text() == 'End 68' and rows.count() == 1, 'new range with a queue asks first; No keeps both')
+            check(end.inner_text() == 'End 68' and selected.count() == 1, 'cancel moving a mark keeps the draft')
             page.once('dialog', lambda d: d.accept())
             page.keyboard.press('5')
-            check(end.inner_text() == 'End 80' and rows.count() == 0, 'Yes sets the new mark and drops the queue')
+            check(end.inner_text() == 'End 80' and selected.count() == 0, 'accept moving a mark discards its draft')
             wait_ready()
-
-            print('Nâng cao from the panel queue')
+            print('Nâng cao from the direct selections')
             before = tags_by_frame()
-            blur(); page.keyboard.press('=')
+            select_only('event_smoke', 'event_drinking')
             advanced.click()
             dialog = page.locator('dialog.cvat-range-dialog')
             cards = dialog.locator('.cvat-operation-card')
@@ -496,11 +519,11 @@ def main():
             seeded = cards.nth(0).locator('.cvat-target-chips button[aria-pressed="true"]').evaluate_all(
                 '(nodes) => nodes.map((b) => b.dataset.labelId)')
             check(cards.count() == 2 and cards.nth(0).locator('select').input_value() == 'add' and seeded == ['1', '2'],
-                  f'dialog starts with the queued row, then a new card ({seeded})')
+                  f'dialog starts with the draft selection, then a new card ({seeded})')
             check(cards.nth(1).locator('select').input_value() == 'replace', 'the added card is Đổi tag')
             dialog.locator('button', has_text='Hủy').click()
             page.wait_for_selector('dialog.cvat-range-dialog', state='detached')
-            check(rows.count() == 1, 'Hủy keeps the panel queue')
+            check(selected.count() == 2, 'Hủy keeps both selections')
             advanced.click()
             card = dialog.locator('.cvat-operation-card').nth(1)
             card.locator('select').wait_for()
@@ -511,7 +534,7 @@ def main():
             after = tags_by_frame()
             ops = [('add', [], 1), ('add', [], 2), ('replace', [3], 2)]
             check(after == expected_after(before, 52, 80, ops, VALID), 'queued + row and Đổi tag applied as one batch')
-            check(rows.count() == 0, 'dialog Apply empties the panel queue')
+            check(selected.count() == 0, 'dialog Apply clears the direct selections')
 
             print('Keys the panel leaves to CVAT and the browser')
             wait_ready()
@@ -526,6 +549,11 @@ def main():
             page.evaluate('document.querySelector(".cvat-workspace-selector .ant-select-selection-item").textContent = "Tag annotation"')
             page.keyboard.press('1')
             check(native() == ['1'], 'slot key 1 still goes to CVAT')
+            page.evaluate("window.suppressDefault = e => e.preventDefault(); document.addEventListener('keydown', window.suppressDefault)")
+            for key in ('ArrowRight', 'Control+z', 'Control+y', 'Control+s', '=', '-'):
+                page.keyboard.press(key)
+            page.evaluate("document.removeEventListener('keydown', window.suppressDefault)")
+            check(native() == ['ArrowRight', 'z', 'y', 's', '=', '-'], 'navigation, Save, native Undo/Redo and retired queue keys reach CVAT')
             page.keyboard.down('4'); page.keyboard.down('4'); page.keyboard.up('4')
             check(start.inner_text() == 'Start 60' and native() == [], 'held 4 marks once; auto-repeat not passed to CVAT')
             check(server.since(mark) == [], 'Quickstart made no server request')
@@ -534,12 +562,11 @@ def main():
             print('Remount in the same job')
             set_range(50, 70)
             select_only('event_smoke')
-            panel.locator('.cvat-quick-add').click()
             page.evaluate('document.querySelector(".cvat-quick-panel").remove()')
             page.wait_for_selector('.cvat-quick-panel .cvat-quick-start')
             check(page.locator('.cvat-quick-panel').count() == 1 and page.locator('.cvat-range-band').count() == 1,
                   'one panel and one band after a remount')
-            check(rows.count() == 1 and start.inner_text() == 'Start 50', 'queue and marks survive a remount')
+            check(selected.count() == 1 and start.inner_text() == 'Start 50', 'draft and marks survive a remount')
             prompts = []
             def on_dialog(d):
                 prompts.append(d.message)
@@ -558,9 +585,9 @@ def main():
                 slider.replaceWith(replacement);
             }""")
             wait('document.querySelector(".cvat-quick-frame-position").textContent === "56/100"', 'new slider supplies the frame counter')
-            check(rows.count() == 1 and page.locator('.cvat-range-band').count() == 1,
+            check(selected.count() == 1 and page.locator('.cvat-range-band').count() == 1,
                   'slider replacement keeps the draft and one highlight')
-            rows.nth(0).locator('.cvat-quick-drop').click()
+            event('event_smoke').click()
 
             print('Tag cache')
             # Marking Start first can read the range between the new Start and the old End;
@@ -611,7 +638,6 @@ def main():
             print('Clear All Tags (local only, same path as Apply)')
             set_range(10, 20)
             select_only('event_smoke')
-            panel.locator('.cvat-quick-add').click()
             badge_matches('before Clear All')
             mark = server.mark()
             refreshes = sim('refreshes')
@@ -630,10 +656,9 @@ def main():
             check('Chưa lưu lên server' in status.inner_text(), 'Clear All reports the save state like Apply')
             badge_matches('after Clear All')
             check(page.locator('.cvat-clear-count').inner_text() == '0', 'Clear All Tags shows 0')
-            check(start.inner_text() == 'Start 10' and end.inner_text() == 'End 20' and rows.count() == 1,
-                  'Start/End and the queued row kept')
-            wait('document.querySelector(".cvat-quick-info").textContent.startsWith("Thêm 9")',
-                 'queued + row re-previewed against the cleared job')
+            check(start.inner_text() == 'Start 10' and end.inner_text() == 'End 20' and selected.count() == 1,
+                  'Start/End and the draft selection kept')
+            check(quick_apply.is_enabled(), 'retained add selection is effective after Clear All')
             check(page.evaluate('window.__sim.state.annotation.canvas.ready'), 'canvas still ready after Clear All')
             page.wait_for_timeout(900)
             sim('takeReads()')
@@ -643,7 +668,7 @@ def main():
             check(sim('takeReads()') == [], 'range cache kept through Clear All (nothing re-read)')
             page.locator('dialog.cvat-range-dialog button', has_text='Hủy').click()
             page.wait_for_selector('dialog.cvat-range-dialog', state='detached')
-            rows.nth(0).locator('.cvat-quick-drop').click()
+            event('event_smoke').click()
             check(server.since(mark) == [], 'Clear All made no server request')
             box = page.locator('.cvat-event-complete-status')
             check(box.is_visible(), 'result message shown')
@@ -703,20 +728,78 @@ def main():
             check(any(e.get('scan') for e in calls), 'no open job via filter: task job list scanned before giving up')
             check(server.job_state[60] == 'completed', 'job 60 completed, task page opened')
 
-            print('Remove tags at frame zero')
+            print('Whole-job event buttons and independent Apply history')
             page.goto(f'{ORIGIN}/tasks/12/jobs/77')
             page.wait_for_selector('.cvat-quick-start')
             mark = server.mark()
+            undo_apply = page.locator('.cvat-job-undo')
+            redo_apply = page.locator('.cvat-job-redo')
+            phone_add = page.locator('[data-event="event_phone"] .cvat-job-event-add')
+            phone_remove = page.locator('[data-event="event_phone"] .cvat-job-event-remove')
+            check(undo_apply.is_disabled() and redo_apply.is_disabled(), 'history starts empty in the new job page')
+            check(start.inner_text() == 'Start' and end.inner_text() == 'End', 'no Start/End marks before whole-job add')
+            before = tags_by_frame()
+            phone_add.click()
+            wait('window.__sim.count("tag", 3) === 98', 'whole-job add fills all eligible frames')
+            check(tags_by_frame() == expected_after(before, 0, 99, [('add', [], 3)], VALID),
+                  'whole-job add affects only Phone and skips deleted frames')
+            page.once('dialog', lambda d: d.dismiss())
+            phone_remove.click()
+            wait('!document.querySelector(".cvat-job-event-remove:last-child").disabled', 'job controls unlock after cancellation')
+            check(sim('count("tag", 3)') == 98, 'canceling whole-job removal leaves tags intact')
+            page.once('dialog', lambda d: d.accept())
+            phone_remove.click()
+            wait('window.__sim.count("tag", 3) === 0', 'confirmed whole-job removal clears Phone only')
+            check(tags_by_frame() == before, 'removing whole-job Phone restores the original label sets')
+            undo_apply.click()
+            wait('window.__sim.count("tag", 3) === 98', 'extension Undo reverses one whole-job Apply')
+            redo_apply.click()
+            wait('window.__sim.count("tag", 3) === 0', 'extension Redo repeats one whole-job Apply')
+            undo_apply.click()
+            wait('window.__sim.count("tag", 3) === 98', 'whole-job removal can be undone again')
+            undo_apply.click()
+            wait('window.__sim.count("tag", 3) === 0', 'extension history can undo consecutive edits of the same label')
+
+            print('Remove tags at frame zero and replay the range Apply')
+            page.evaluate("""() => {
+                const smoke = [...window.__sim.objects.values()].find((tag) => tag.frame === 0 && tag.labelId === 1);
+                smoke.attributes = { 7: 'original value' };
+                smoke.source = 'auto';
+            }""")
             set_range(0, 0)
-            select_only('event_smoke', 'event_phone')
+            event('event_smoke', 'remove').click()
+            event('event_phone', 'remove').click()
             check(1 in sim('tagsOn(0)') and 3 not in sim('tagsOn(0)'), 'frame 0 has smoke and no phone before removal')
-            panel.locator('.cvat-quick-remove').click()
-            check(rows.count() == 1 and quick_apply.is_enabled(), 'a missing label does not block the frame 0 removal')
+            check(selected.count() == 2 and quick_apply.is_enabled(), 'a missing label does not block the frame 0 removal')
             quick_apply.click()
-            wait('document.querySelectorAll(".cvat-quick-row").length === 0', 'frame 0 Apply finished')
+            wait("""!document.querySelector('.cvat-quick-event[aria-pressed="true"]')""", 'frame 0 Apply finished')
             check(1 not in sim('tagsOn(0)') and 1 in sim('tagsOn(3)'), 'Apply removes smoke at frame 0 only')
             check(server.since(mark) == [], 'frame 0 removal stays in memory until Save')
             event_counts_match('job-wide counts update after frame 0 removal')
+            check(redo_apply.is_disabled(), 'a fresh range Apply clears the previous redo branch')
+            page.evaluate('window.__sim.userAddTag(3, 3)')
+            undo_apply.click()
+            wait('window.__sim.tagsOn(0).includes(1)', 'extension Undo restores the range Apply')
+            check(page.evaluate("""() => [...window.__sim.objects.values()].some((tag) =>
+                  tag.frame === 0 && tag.labelId === 1 && !tag.removed &&
+                  tag.source === 'auto' && tag.attributes[7] === 'original value')"""),
+                  'Undo restores the original tag source and attributes')
+            redo_apply.click()
+            wait('!window.__sim.tagsOn(0).includes(1)', 'extension Redo reapplies range removal')
+            check(3 in sim('tagsOn(3)'), 'Undo and Redo keep an unrelated tag added outside the extension')
+            page.evaluate('window.__sim.userAddTag(0, 1)')
+            undo_apply.click()
+            wait('document.querySelector("#cvat-event-complete-status").textContent.includes("đã thay đổi")',
+                 'Undo reports a conflicting native tag edit')
+            check(sim('tagsOn(0)').count(1) == 1 and sim('count("shape")') == shapes,
+                  'conflicting Undo leaves native tags and shapes intact')
+            check(server.since(mark) == [] and sim('state.annotation.canvas.ready'),
+                  'all extension Apply, Undo and Redo operations stay local with canvas ready')
+            page.evaluate('window.__sim.job.labels = window.__sim.labels.filter(label => label.id !== 3)')
+            set_range(1, 2)
+            blur(); page.keyboard.press('Alt+3'); page.keyboard.press('Alt+Shift+3')
+            check(event('event_phone').is_disabled() and event('event_phone', 'remove').is_disabled() and
+                  selected.count() == 0, 'a missing job label disables both directions through mouse and keyboard')
             browser.close()
     finally:
         proc.kill()

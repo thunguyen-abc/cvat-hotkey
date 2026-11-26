@@ -5,16 +5,14 @@
 // server: it reads and changes the annotations CVAT holds in the browser, and CVAT's own
 // save uploads them.
 //
-// Quickstart panel, under the frame number: Start/End, the three event buttons, a queue of
-// + / − rows and Apply. "Nâng cao" opens the dialog with every mode (Đổi tag, Xóa toàn bộ
-// tag trong khoảng, ...), seeded with the queued rows. Panel and dialog share one Apply.
+// Each event has one pending direction in Quickstart. Advanced can compose sequential steps.
 const CVAT_RANGE_COLLAPSED = 'cvat-event-range-collapsed';
 
 function attachCVATRangeEditor(control, slider, anchor) {
   const { job } = control;
   const jobSignal = control.controller.signal;
   // One mount per slider/anchor. A remount in the same job removes the old panel, band and
-  // key listeners first; the job's marks, selection, queue and snapshot stay on control.
+  // key listeners first; the job's marks, event actions and snapshot stay on control.
   control.rangeMount?.abort();
   const mount = new AbortController();
   control.rangeMount = mount;
@@ -28,10 +26,8 @@ function attachCVATRangeEditor(control, slider, anchor) {
       const stored = JSON.parse(sessionStorage.getItem(storageKey));
       for (const name of ['start', 'end']) if (Number.isInteger(stored?.[name])) marks[name] = stored[name];
     } catch { /* Storage may be unavailable. */ }
-    // rows: [{ mode: 'add' | 'remove', ids: [labelId] }], bound to the current range.
-    // snapshot: rangeSnapshot result plus { low, high }; loading: the range being read.
-    return { marks, selected: new Set(), rows: [], snapshot: null, loading: null, error: null,
-      notice: null, busy: false, mounted: null };
+    return { marks, eventActions: new Map(), snapshot: null, loading: null, error: null,
+      notice: '', busy: false, mounted: null };
   }
 
   function element(tag, text, className) {
@@ -74,46 +70,37 @@ function attachCVATRangeEditor(control, slider, anchor) {
   marks.append(start, end, length);
   top.append(marks, head);
   const events = element('div', undefined, 'cvat-quick-events');
-  events.setAttribute('role', 'group');
-  events.setAttribute('aria-label', 'Event cần chỉnh');
-  // Always exactly three boxes, in slot order. A label missing from the job keeps its box,
-  // disabled. Other tag labels of the job are never shown here.
-  const eventButtons = CVAT_EVENT_LABELS.map((name, index) => {
-    const node = button(undefined, 'cvat-quick-event');
-    node.dataset.event = name;
-    node.dataset.slot = String(index + 1);
-    node.setAttribute('aria-pressed', 'false');
-    const label = element('span', undefined, 'cvat-quick-event-name');
-    const [prefix, suffix] = name.split('_');
-    label.append(prefix + '_', element('wbr'), suffix);
-    label.translate = false;
-    node.append(label);
-    node.onclick = () => toggleEvent(index);
-    events.append(node);
-    return node;
-  });
-  const queueActions = element('div', undefined, 'cvat-quick-actions');
-  const addRow = button('+', 'cvat-quick-add');
-  const removeRow = button('−', 'cvat-quick-remove');
-  addRow.setAttribute('aria-label', 'Thêm các event đã chọn');
-  removeRow.setAttribute('aria-label', 'Xóa các event đã chọn');
-  addRow.title = 'Xếp thao tác thêm các event đang chọn (phím =)';
-  removeRow.title = 'Xếp thao tác xóa các event đang chọn (phím -)';
-  queueActions.append(addRow, removeRow);
-  const results = element('section', undefined, 'cvat-quick-results');
-  const resultsTitle = element('h2', 'Kết quả', 'cvat-quick-results-title');
-  resultsTitle.id = 'cvat-quick-results-' + job.jobId;
-  results.setAttribute('aria-labelledby', resultsTitle.id);
-  const queue = element('ol', undefined, 'cvat-quick-queue');
-  queue.setAttribute('aria-label', 'Thao tác chờ áp dụng');
+  const eventButtons = [];
+  for (const mode of ['add', 'remove']) {
+    const adding = mode === 'add';
+    const verb = adding ? 'Thêm' : 'Xóa';
+    const row = element('div', undefined, 'cvat-quick-event-row');
+    row.setAttribute('role', 'group');
+    row.setAttribute('aria-label', verb + ' event');
+    const sign = element('span', adding ? '+' : '−', 'cvat-quick-sign');
+    sign.setAttribute('aria-hidden', 'true');
+    row.append(sign);
+    CVAT_EVENT_LABELS.forEach((name, index) => {
+      const node = button(name, 'cvat-quick-event');
+      const shortcut = (adding ? 'Alt+' : 'Alt+Shift+') + (index + 1);
+      node.translate = false;
+      node.dataset.event = name;
+      node.dataset.mode = mode;
+      node.setAttribute('aria-label', verb + ' ' + name);
+      node.setAttribute('aria-keyshortcuts', shortcut);
+      node.onclick = () => toggleEvent(name, mode);
+      row.append(node);
+      eventButtons.push(node);
+    });
+    events.append(row);
+  }
   const footer = element('div', undefined, 'cvat-quick-footer');
   const info = element('span', undefined, 'cvat-quick-info');
   info.setAttribute('role', 'status');
-  const apply = button('Áp dụng', 'cvat-quick-apply cvat-event-primary');
-  apply.title = 'Áp dụng các thao tác đang xếp (Enter)';
+  const apply = button('Áp dụng', 'cvat-quick-apply');
+  apply.title = 'Áp dụng cho khoảng đã đánh dấu (Enter)';
   footer.append(info, apply);
-  results.append(resultsTitle, queue, footer);
-  body.append(events, queueActions, results);
+  body.append(events, footer);
   panel.append(top, body);
   anchor.append(panel);
   const band = element('div', undefined, 'cvat-range-band');
@@ -148,10 +135,20 @@ function attachCVATRangeEditor(control, slider, anchor) {
   const snapshotFor = (range) => (sameRange(state.snapshot, range) ? state.snapshot : null);
   const eventIdsOf = (snapshot) => CVAT_EVENT_LABELS.map((name) =>
     snapshot?.labels.find((label) => label.name === name)?.id ?? null);
-  const nameIn = (snapshot, id) => snapshot?.labels.find((label) => label.id === id)?.name ?? '#' + id;
-  const operations = (rows) => rows.map((row) => (row.mode === 'add'
-    ? { mode: 'add', sources: [], targets: [...row.ids] }
-    : { mode: 'remove', sources: [...row.ids], targets: [] }));
+  // Resolve the draft by label name against this snapshot; the dialog gets its own copy.
+  function draftRows(snapshot) {
+    const ids = eventIdsOf(snapshot);
+    return ['add', 'remove'].map((mode) => ({
+      mode,
+      ids: ids.filter((id, index) => id !== null && state.eventActions.get(CVAT_EVENT_LABELS[index]) === mode),
+    })).filter((row) => row.ids.length);
+  }
+  function draftPlan(range, snapshot) {
+    const ops = draftRows(snapshot).map(({ mode, ids }) => mode === 'add'
+      ? { mode, targets: ids } : { mode, sources: ids });
+    return planFor(range, snapshot, ops);
+  }
+  const staleNotice = 'Tag vừa thay đổi. Kiểm tra lại rồi bấm Áp dụng.';
   const planFor = (range, snapshot, ops) => planCVATRangeBatch({
     tags: snapshot.tags, low: range.low, high: range.high, addFrames: snapshot.addFrames, operations: ops,
   });
@@ -186,6 +183,7 @@ function attachCVATRangeEditor(control, slider, anchor) {
   // that arrives after the range, the job or the mount changed is dropped.
   async function load(force = false) {
     const range = currentRange();
+    if (!sameRange(state.loading, range)) state.loading = null;
     if (!range || (!force && (snapshotFor(range) || sameRange(state.loading, range)))) {
       state.mounted?.render();
       return;
@@ -202,8 +200,14 @@ function attachCVATRangeEditor(control, slider, anchor) {
     } catch (problem) { error = problem.message; }
     if (jobSignal.aborted || state.loading !== request) return;
     state.loading = null;
-    if (snapshot) state.snapshot = { ...snapshot, ...range };
-    else state.error = error;
+    if (snapshot) {
+      const previous = snapshotFor(range);
+      if (state.eventActions.size && previous && previous.key !== snapshot.key) state.notice = staleNotice;
+      state.snapshot = { ...snapshot, ...range };
+    } else {
+      state.snapshot = null;
+      state.error = error;
+    }
     state.mounted?.render();
   }
 
@@ -213,127 +217,62 @@ function attachCVATRangeEditor(control, slider, anchor) {
     const range = currentRange();
     const snapshot = snapshotFor(range);
     const loading = sameRange(state.loading, range);
-    const ids = eventIdsOf(snapshot);
-    const result = snapshot ? planFor(range, snapshot, operations(state.rows)) : null;
-    const ready = Boolean(snapshot) && !state.busy;
-    const rangeLength = range ? range.high - range.low + 1 : 0;
-    length.textContent = range ? rangeLength + ' frame' : '';
-    length.hidden = !range;
+    const locked = controlsLocked();
+    const ready = Boolean(snapshot) && !loading && !locked;
+    start.disabled = end.disabled = toggle.disabled = locked;
+    length.textContent = range ? (range.high - range.low + 1) + ' frame' : '';
     advanced.disabled = !ready;
-    advanced.title = ready ? 'Đổi tag, xóa toàn bộ tag trong khoảng và các thao tác khác'
-      : 'Chọn Start và End để chỉnh tag';
-
-    eventButtons.forEach((node, index) => {
-      const name = CVAT_EVENT_LABELS[index];
-      const id = ids[index];
-      const missing = Boolean(snapshot) && id === null;
-      node.disabled = !ready || id === null;
-      node.dataset.missing = String(missing);
-      node.setAttribute('aria-pressed', String(state.selected.has(name) && !missing));
-      node.title = missing ? 'Job không có nhãn ' + name
-        : name + ' (Alt+' + (index + 1) + ')';
-    });
-    const chosen = selectedIds(snapshot);
-    addRow.disabled = removeRow.disabled = !ready || !chosen.length;
-
-    queue.replaceChildren(...state.rows.map((row, index) => {
-      const step = result?.steps[index];
-      const item = element('li', undefined, 'cvat-quick-row');
-      item.dataset.mode = row.mode;
-      const sign = element('span', row.mode === 'add' ? '+' : '−', 'cvat-quick-sign');
-      sign.title = row.mode === 'add' ? 'Thêm' : 'Xóa';
-      const names = row.ids.map((id) => nameIn(snapshot, id)).join(', ');
-      const text = element('span', names, 'cvat-quick-names');
-      const problem = step?.problem;
-      item.dataset.invalid = String(Boolean(problem));
-      const drop = button('×', 'cvat-quick-drop');
-      drop.dataset.index = String(index);
-      drop.disabled = state.busy;
-      drop.setAttribute('aria-label', 'Bỏ thao tác ' + (row.mode === 'add' ? 'thêm ' : 'xóa ') + names);
-      drop.title = 'Bỏ thao tác này';
-      drop.onclick = () => dropRow(index);
-      item.append(sign, text, drop);
-      if (problem) item.append(element('small', problem, 'cvat-quick-problem'));
-      return item;
-    }));
-    queue.hidden = !state.rows.length;
-
-    let text;
-    let kind = 'idle';
-    const counts = result?.counts;
-    if (state.notice) ({ text, kind } = state.notice);
-    else if (!range) text = 'Đặt Start (4) và End (5) để chọn khoảng.';
-    else if (state.busy) text = 'Đang cập nhật tag trên trình duyệt…';
-    else if (!snapshot && loading) text = 'Đang đọc tag…';
-    else if (!snapshot) { text = state.error || 'Chưa đọc được tag.'; kind = 'error'; }
-    else if (!state.rows.length) text = 'Chọn event rồi bấm + hoặc −.';
-    else {
-      text = 'Thêm ' + counts.add + ' · Xóa ' + counts.remove + (counts.replace ? ' · Đổi ' + counts.replace : '');
-      if (!result.complete) { text += ' · Sửa dòng báo lỗi.'; kind = 'error'; }
+    advanced.title = range ? 'Đổi tag, xóa toàn bộ tag trong khoảng và các thao tác khác' : 'Chọn Start và End';
+    for (const node of eventButtons) {
+      const { event: name, mode } = node.dataset;
+      const action = state.eventActions.get(name);
+      const missing = snapshot && !snapshot.labels.some((label) => label.name === name);
+      const opposite = Boolean(action && action !== mode);
+      node.disabled = !ready || missing || opposite;
+      node.dataset.missing = String(Boolean(missing));
+      node.setAttribute('aria-pressed', String(!missing && action === mode));
+      node.title = missing ? 'Job không có nhãn ' + name : opposite ? 'Bỏ chọn ở hàng đối diện trước'
+        : node.getAttribute('aria-label') + ' (' + node.getAttribute('aria-keyshortcuts') + ')';
     }
-    info.textContent = text;
-    info.dataset.kind = kind;
-    const changes = counts ? counts.add + counts.replace + counts.remove : 0;
-    apply.disabled = !ready || loading || !result.complete || !changes;
-    apply.classList.toggle('cvat-event-danger', Boolean(counts) && counts.remove > 0 && !counts.add && !counts.replace);
+    const plan = ready && state.eventActions.size ? draftPlan(range, snapshot) : null;
+    apply.disabled = !plan?.complete || !(plan.create.length || plan.delete.length);
+    apply.setAttribute('aria-busy', String(state.busy));
+    apply.setAttribute('aria-label', state.busy ? 'Đang áp dụng' : 'Áp dụng');
+    info.textContent = state.error || state.notice || '';
+    info.title = info.textContent;
   }
 
-  function selectedIds(snapshot) {
-    const ids = eventIdsOf(snapshot);
-    return CVAT_EVENT_LABELS.map((name, index) => (state.selected.has(name) ? ids[index] : null))
-      .filter((id) => id !== null);
+  function controlsLocked() {
+    return state.busy || control.button.disabled || control.clearButton.disabled;
   }
   // ---- Actions (shared by mouse and keys) ------------------------------------------------
   function mark(name) {
     const current = frame('now');
-    if (!Number.isInteger(current) || state.busy) return;
+    if (!validMark(current) || controlsLocked()) return;
     const next = { ...state.marks, [name]: current };
     const before = currentRange();
-    if (state.rows.length && !sameRange(before, currentRange(next))) {
-      const question = 'Bỏ ' + state.rows.length + ' thao tác chưa áp dụng của frame ' + before.low + '–' +
-        before.high + ' để đặt khoảng mới?';
+    if (state.eventActions.size && !sameRange(before, currentRange(next))) {
+      const question = 'Bỏ ' + state.eventActions.size + ' lựa chọn chưa áp dụng của frame ' + state.marks.start + '–' +
+        state.marks.end + ' để đặt khoảng mới?';
       if (!window.confirm(question)) return;
-      state.rows = [];
+      state.eventActions.clear();
     }
     state.marks = next;
     try { sessionStorage.setItem(storageKey, JSON.stringify(next)); } catch { /* Optional persistence. */ }
-    state.notice = null;
+    state.notice = '';
     void load();
   }
-  function toggleEvent(index) {
-    if (eventButtons[index].disabled) return;
-    const name = CVAT_EVENT_LABELS[index];
-    if (state.selected.has(name)) state.selected.delete(name);
-    else state.selected.add(name);
-    state.notice = null;
-    render();
-  }
-  // One row per press with every selected event, in button order. The row keeps a copy of
-  // the ids, so toggling afterwards only affects the next row.
-  function enqueue(mode) {
+  function toggleEvent(name, mode) {
     const range = currentRange();
     const snapshot = snapshotFor(range);
-    const ids = selectedIds(snapshot);
-    if (!range || state.busy || !ids.length) return;
-    if (mode === 'remove') {
-      const { desired } = planFor(range, snapshot, operations(state.rows));
-      if (!desired.some(({ labelId }) => ids.includes(labelId))) {
-        state.notice = { text: 'Không có tag phù hợp để xóa.', kind: 'idle' };
-        render();
-        return;
-      }
-    }
-    state.rows = [...state.rows, { mode, ids }];
-    state.notice = null;
+    if (controlsLocked() || sameRange(state.loading, range) ||
+        !snapshot?.labels.some((label) => label.name === name)) return;
+    const current = state.eventActions.get(name);
+    if (current && current !== mode) return;
+    if (current === mode) state.eventActions.delete(name);
+    else state.eventActions.set(name, mode);
+    state.notice = '';
     render();
-  }
-  function dropRow(index) {
-    if (state.busy) return;
-    state.rows = state.rows.filter((_, position) => position !== index);
-    state.notice = null;
-    render();
-    const drops = queue.querySelectorAll('.cvat-quick-drop');
-    (drops[Math.min(index, drops.length - 1)] ?? addRow).focus({ preventScroll: true });
   }
 
   // The single Apply path for panel and dialog. The range, plan and snapshot key are taken
@@ -358,13 +297,9 @@ function attachCVATRangeEditor(control, slider, anchor) {
       state.mounted?.render();
     }
   }
-  function applied(range, change, result) {
-    const { add, replace, remove } = change.counts;
-    state.rows = [];
-    state.notice = { text: 'Đã áp dụng: thêm ' + add + ', đổi ' + replace + ', xóa ' + remove + ' tag.', kind: 'done' };
-    // Start/End stay marked (and highlighted) for the next edit; Complete & Next clears them.
-    control.notify('Frame ' + range.low + '–' + range.high + ': thêm ' + add + ', đổi ' + replace + ', xóa ' +
-      remove + ' tag. ' + describeCVATSave(result.save));
+  function applied() {
+    state.eventActions.clear();
+    state.notice = '';
     void state.mounted?.load(true);
   }
 
@@ -373,19 +308,19 @@ function attachCVATRangeEditor(control, slider, anchor) {
     if (apply.disabled || applying) return;
     const range = currentRange();
     const snapshot = snapshotFor(range);
-    const change = planFor(range, snapshot, operations(state.rows));
-    if (!change.complete) return;
+    const change = draftPlan(range, snapshot);
+    if (!change.complete || !(change.create.length || change.delete.length)) return;
     applying = true;
     try {
       const result = await applyChange(range, snapshot.key, change);
       if (jobSignal.aborted) return;
       if (result.stale) {
         state.snapshot = { ...result.snapshot, ...range };
-        state.notice = { text: 'Tag trong khoảng vừa thay đổi. Kiểm tra lại rồi bấm Áp dụng.', kind: 'error' };
-      } else applied(range, change, result);
+        state.notice = staleNotice;
+      } else applied();
     } catch (error) {
       if (jobSignal.aborted) return;
-      state.notice = { text: error.message + ' Các thao tác vẫn được giữ để thử lại.', kind: 'error' };
+      state.notice = error.message;
     } finally {
       applying = false;
       state.mounted?.render();
@@ -394,17 +329,14 @@ function attachCVATRangeEditor(control, slider, anchor) {
 
   start.onclick = () => mark('start');
   end.onclick = () => mark('end');
-  addRow.onclick = () => enqueue('add');
-  removeRow.onclick = () => enqueue('remove');
   apply.onclick = () => { void applyQuick(); };
   advanced.onclick = () => {
     const range = currentRange();
-    if (!advanced.disabled && !control.button.disabled) openEditor(range, state.rows.map((row) => ({ ...row })));
+    if (!advanced.disabled && !control.button.disabled) openEditor(range, draftRows(snapshotFor(range)));
   };
 
   // ---- Keys ------------------------------------------------------------------------------
-  // 4/5 mark Start/End (CVAT's own slot 4/5 does not fire), Alt+1/2/3 (or Ctrl+1/2/3 where
-  // the browser passes it on) toggle the event buttons, = / - queue + / −, Enter applies.
+  // Alt+slot selects add, Alt+Shift+slot selects remove. Bare slots belong to CVAT.
   // Only in Tag annotation on this job, with no dialog, dropdown or text field in the way;
   // a key the panel cannot use right now goes to CVAT and the browser unchanged.
   const editable = 'input, textarea, select, [contenteditable=""], [contenteditable="true"], ' +
@@ -430,15 +362,12 @@ function attachCVATRangeEditor(control, slider, anchor) {
     if (!modified && (key === '4' || key === '5')) return () => mark(key === '4' ? 'start' : 'end');
     if (collapsed) return null;
     const slot = /^(?:Digit|Numpad)([1-3])$/.exec(code)?.[1];
-    if (slot && event.altKey !== event.ctrlKey && !event.metaKey && !event.shiftKey) {
-      const index = Number(slot) - 1;
-      return eventButtons[index].disabled ? null : () => toggleEvent(index);
+    if (slot && event.altKey && !event.ctrlKey && !event.metaKey && snapshotFor(currentRange())) {
+      return () => toggleEvent(CVAT_EVENT_LABELS[Number(slot) - 1], event.shiftKey ? 'remove' : 'add');
     }
     if (modified) return null;
-    if (key === '=' || key === '+') return addRow.disabled ? null : () => enqueue('add');
-    if (key === '-') return removeRow.disabled ? null : () => enqueue('remove');
     if (key === 'Enter' && !event.shiftKey && !(event.target instanceof Element && event.target.closest(ownControls))) {
-      return apply.disabled ? null : () => { void applyQuick(); };
+      return state.busy || !apply.disabled ? () => { void applyQuick(); } : null;
     }
     return null;
   }
@@ -469,7 +398,9 @@ function attachCVATRangeEditor(control, slider, anchor) {
   }, signal);
 
   state.mounted = { render, load };
-  // Follow the player during navigation or playback without rebuilding the queue or reading tags.
+  const lockObserver = new MutationObserver(render);
+  for (const node of [control.button, control.clearButton]) lockObserver.observe(node, { attributeFilter: ['disabled'] });
+  // Follow the player during navigation or playback without replanning the draft or reading tags.
   const frameObserver = new MutationObserver(paintFramePosition);
   frameObserver.observe(slider, {
     childList: true, subtree: true, attributes: true,
@@ -478,6 +409,7 @@ function attachCVATRangeEditor(control, slider, anchor) {
   signal.addEventListener('abort', () => {
     clearTimeout(reloadTimer);
     frameObserver.disconnect();
+    lockObserver.disconnect();
     panel.remove();
     band.remove();
     if (state.mounted?.render === render) state.mounted = null;
@@ -487,8 +419,7 @@ function attachCVATRangeEditor(control, slider, anchor) {
   void load();
 
   // ---- Nâng cao dialog -------------------------------------------------------------------
-  // Every mode, seeded with the panel's queued rows in order. Hủy/Esc leaves the panel's
-  // queue as it was; Apply runs the whole batch through applyChange and empties the queue.
+  // Advanced owns an ordered copy of the draft. Cancel leaves the panel selection intact.
   function openEditor({ low, high }, seed) {
     const dialog = element('dialog', undefined, 'cvat-event-clear-dialog cvat-range-dialog');
     dialog.setAttribute('aria-label', 'Chỉnh tag nâng cao trong khoảng frame');
@@ -500,7 +431,7 @@ function attachCVATRangeEditor(control, slider, anchor) {
     // Counts of the three events in the range: now, and after Apply when it differs.
     const stats = element('div', undefined, 'cvat-range-stats');
     stats.setAttribute('aria-label', 'Số tag event trong khoảng');
-    const seedHint = element('small', 'Gồm ' + seed.length + ' thao tác đã xếp ở bảng nhanh. Hủy để giữ nguyên bảng.');
+    const seedHint = element('small', 'Gồm ' + seed.length + ' thao tác từ bảng nhanh.');
     seedHint.hidden = !seed.length;
     const orderHint = element('small', 'Các thao tác chạy theo thứ tự từ trên xuống; mỗi thao tác dùng kết quả của các thao tác phía trên.');
     orderHint.hidden = true;
@@ -714,7 +645,10 @@ function attachCVATRangeEditor(control, slider, anchor) {
           status.textContent += ' · Dữ liệu vừa thay đổi. Kiểm tra lại rồi bấm Áp dụng.';
           return;
         }
-        applied({ low, high }, change, result);
+        applied();
+        const { add, replace, remove } = change.counts;
+        control.notify('Frame ' + low + '–' + high + ': thêm ' + add + ', đổi ' + replace + ', xóa ' +
+          remove + ' tag. ' + describeCVATSave(result.save));
         close();
       } catch (error) {
         busy = false;

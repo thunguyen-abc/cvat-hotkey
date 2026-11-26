@@ -7,7 +7,7 @@ This guide is for developers who continue work on this repository. User document
 - Repository: https://github.com/thunguyen-abc/cvat-hotkey, branch `main`.
 - Platform: Chrome extension, Manifest V3, installed with **Load unpacked**.
 - Target site: https://cvat-tai.abcstudio.online. Reference job: `/tasks/681/jobs/6306`.
-- Release baseline: `v1.7.3` (compact Quickstart, whole-job event counts, remove skips absent tags). Check GitHub Releases before choosing the next version.
+- Release baseline: `v1.8.0` (two-row Quickstart, whole-job event actions and independent Apply Undo/Redo). Check GitHub Releases before choosing the next version.
 
 The extension adds features to the existing CVAT annotation UI. It does not need any change to the CVAT server. Continue with this codebase; do not rewrite it.
 
@@ -20,7 +20,7 @@ The extension adds features to the existing CVAT annotation UI. It does not need
 | `range-plan.js` | Pure planner for range edits (add, replace, remove selected, remove all), and `CVAT_EVENT_LABELS`, the slot 1/2/3 event list shared with `hotkeys.js` and the range panel. |
 | `bridge-client.js` | Isolated-world client for the bridge (DOM events carrying JSON), the rate-limited GET queue, and the "saved or not" status text. |
 | `hotkeys.js` | Keys `1`/`2`/`3` toggle `event_smoke`/`event_drinking`/`event_phone` on the current frame. Switches Standard jobs to Tag annotation once per job load. |
-| `range-editor.js` | Quickstart panel (job frame position, Start/End, event coverage, + / − queue, Apply), the progress-bar highlight and the **Nâng cao** dialog. Panel and dialog share one Apply path. |
+| `range-editor.js` | Quickstart panel (job frame position, Start/End, two direct event rows, Apply), the progress-bar highlight and the **Nâng cao** dialog. Panel and dialog share one Apply path. |
 | `complete-next.js` | **Complete & Next** and **Clear All Tags** (with the job's live tag count) buttons. |
 | `tests/fake-cvat.html`, `tests/simulated_cvat.py` | Simulated CVAT job and the regression test. Not shipped in the ZIP. |
 | `complete-next.css` | Styling for every injected control and dialog. |
@@ -35,7 +35,9 @@ Content scripts do not call `chrome.*` APIs. This is deliberate: when the extens
 
 ## Working with CVAT's in-memory annotations
 
-The Quickstart header reads the player slider for the zero-based job position and inclusive job size. It observes player changes independently of range planning. Job-wide event totals sit below the job buttons and use the same bridge update as the Clear All Tags badge. CVAT statistics provide `total.tag` and `label[name].tag`; the bridge falls back to counting the in-memory export.
+The Quickstart header reads the player slider for the zero-based job position and inclusive job size. It observes player changes independently of range planning. Job-wide event totals sit below the job buttons and use the same bridge update as the Clear All Tags badge. CVAT statistics provide `total.tag` and `label[name].tag`. The bridge falls back to counting the in-memory export. The buttons beside the job totals request a whole-job range snapshot using the active job bounds, then call the existing planner and Apply path.
+
+Quickstart keeps pending actions in a per-job Map keyed by event name. The opposite row is locked by the state transition itself. Both the mouse and Alt(+Shift)+slot invoke that transition. The panel resolves selected names through the range snapshot and passes up to two operations to the batch planner. Success clears the Map, while stale data and failed commits preserve it for retry. Advanced receives an independent ordered copy, followed by its usual Replace card. The job toolbar and both range entry points continue to share the extension Apply history.
 
 The deployed server runs CVAT **2.56.1** (`/api/server/about`). When a job opens, CVAT loads all of its annotations into a client-side collection (cvat-core). It saves by comparing that collection with the copy it last received from the server, and sends only the difference: one `PATCH …/annotations?action=update`, one `action=delete` and one `action=create`, each only if non-empty. Each is retried on 504. Autosave runs on the user's `autoSaveInterval`. "Finish the job" saves first, then sets the state to completed.
 
@@ -43,11 +45,13 @@ The extension therefore never writes annotations itself. It changes the collecti
 
 - **Plugin entry:** `window.cvatUI.registerComponent(builder)`. The builder receives `{ core, store, dispatch, actionCreators }`. `cvat-bridge.js` keeps that object. Chrome injects a file only once per page even when two `content_scripts` entries list it, so the MAIN-world entry contains `cvat-bridge.js` only.
 - **Read:** `store.getState().annotation.job.instance` is the job. The range editor reads **only the frames between Start and End**, one at a time, with `job.annotations.get(frame, false, [])` (tags filtered by `objectType`), and checks `job.frames.search({ notDeleted: true }, frame, frame)` for deleted frames and frame filters. Both come from memory and cached frame meta. Labels come from `job.labels`. Only Clear All Tags, which is job-wide, uses `job.annotations.export()`. The count on that button comes from `job.annotations.statistics().total.tag` (export as fallback): the bridge subscribes to the store and announces it (`cvat-event-hotkeys:tags-changed`) 250 ms after `annotation.annotations.history` or the job changes, which also makes the range panel re-read its range.
-- **Write:** create tags with `job.annotations.put([new core.classes.ObjectState({ objectType: core.enums.ObjectType.TAG, label, frame })])`. Delete them with `state.delete(frame, true)` on the states from `job.annotations.get(frame, false, [])`. Each delete is one Undo step.
+- **Write:** Apply and the extension's Undo/Redo use `job.annotations.commit` with a tag-only delta. Clear All Tags uses `state.delete(frame, true)` on states from `job.annotations.get(frame, false, [])`.
 - **Refresh:** dispatch `FETCH_ANNOTATIONS_SUCCESS` with `{ states, history, minZ, maxZ }` built from `job.annotations.get(currentFrame, showAllInterpolationTracks, filters)`, plus ground-truth states when shown. This is CVAT's own `fetchAnnotationsAsync`, the path the tag sidebar uses after creating a tag. **Never call `changeFrameAsync` on the current frame:** `CHANGE_FRAME` sets `canvas.ready = false`, and on the same frame the canvas only emits `OBJECTS_UPDATED`, not `canvas.setup`, so `CONFIRM_CANVAS_READY` never comes and CVAT shows loading until the page reloads. v1.6.0 had this bug; `tests/simulated_cvat.py` now checks `canvas.ready`.
 - **Cache:** the bridge keeps a per-frame cache (`frame -> { tags, valid }`) for the open job. Reopening Edit on an overlapping range reads only the frames not cached yet; changing frame or saving keeps the cache. The key is CVAT's undo history from the store, which changes with every annotation action, so any tag change, undo or redo empties it. Apply always re-reads its range live and compares fingerprints, because the history is capped at 32 entries without ids, so a stale hit is possible but never applied. After Apply, untouched frames of the range stay cached and only the changed frames are re-read. Clear All keeps the cached frames (now without tags), like Apply; Complete & Next drops the cache and removes the job's Start/End marks.
 - **Safety:** the bridge refuses to work while `annotation.annotations.saving.uploading` is true. `rangeSnapshot` returns a fingerprint of the tags in the range. `applyRange` re-reads the live tags, refuses a changed fingerprint (`stale`), checks every planned delete and create (no tag outside the range, no duplicate target), and only then applies. `clearSnapshot`/`clearAll` do the same over the whole job.
 - **Keys:** the range panel listens on `window` keydown in the capture phase, once per mount (an `AbortSignal` removes it on remount or job change), and calls `preventDefault` + `stopImmediatePropagation` only for keys it uses, so CVAT's Mousetrap (document, bubble) never sees them; auto-repeat of a taken key is swallowed too. It stays out of Standard, text fields, dialogs and open Ant Design overlays. `Alt+1/2/3` was chosen because Chrome on Windows keeps `Ctrl+1…8`; confirm on a real job after CVAT keymap changes.
+
+In CVAT 2.56.1 the default UI source has no literal Alt+1/2/3 or Alt+Shift+1/2/3 binding. Users can customize the CVAT keymap. Quickstart leaves Ctrl+number available to Chrome's tab switcher. The simulated browser checks both Quickstart directions, native slot keys, frame navigation, Save, Undo and Redo. [CVAT UI source](https://github.com/cvat-ai/cvat/tree/v2.56.1/cvat-ui/src) · [Chrome keyboard shortcuts](https://support.google.com/chrome/answer/157179?hl=en)
 
 These are internal CVAT structures, not a published API. They match 2.56.1. After a CVAT upgrade, run `tests/simulated_cvat.py` and test once on a real job. If they change, update the bridge.
 
@@ -88,7 +92,9 @@ Verified on 2026-11-25 on Windows 10 with PowerShell 5.1 and Chromium 1248:
 
 ## Range editor: several operations
 
-`range-plan.js` `planCVATRangeBatch` projects the operations top to bottom on the snapshot of the range. Each card sees the tags left by the cards above it. Remove skips absent tags. Replace requires a selected source that is still present and a different target. Missing selections block Apply. The final state is diffed against the original. Unchanged `(frame, label)` pairs are kept, relabels count as "Đổi", and the result is `{ create: [{ frame, labelId }], delete: [{ clientID, frame }] }`. The bridge re-reads the range, refuses a changed fingerprint, validates the diff, then deletes and creates. The release workflow runs `node tests/range_plan_test.js`.
+`range-plan.js` `planCVATRangeBatch` projects the operations top to bottom on the snapshot of the range. Each card sees the tags left by the cards above it. Remove skips absent tags. Replace requires a selected source that is still present and a different target. Missing selections block Apply. The final state is diffed against the original. Unchanged `(frame, label)` pairs are kept, relabels count as "Đổi", and the result is `{ create: [{ frame, labelId }], delete: [{ clientID, frame }] }`. The bridge re-reads the range, refuses a changed fingerprint, validates the diff, then commits it to the in-memory collection. The release workflow runs `node tests/range_plan_test.js`.
+
+The extension stores before/after tag values only for frame/label pairs changed by Apply. Undo and Redo reread those pairs and validate them before committing a delta with `job.annotations.commit`. CVAT's native history is independent of the extension's history. Clear All Tags retains its original path. [CVAT session API](https://github.com/cvat-ai/cvat/blob/v2.56.1/cvat-core/src/session.ts)
 
 ## Complete & Next
 

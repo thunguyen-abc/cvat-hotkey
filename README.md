@@ -14,35 +14,25 @@ Bấm một lần để gắn tag vào frame hiện tại. Bấm lại để g�
 
 Bảng chỉnh nhanh nằm ngay dưới ô số frame khi mở job. **Frame 0/200** là vị trí trong job tính từ 0 trên tổng số frame của job. Chọn frame đầu rồi bấm **Start** (phím `4`), chọn frame cuối rồi bấm **End** (phím `5`). Hai mốc hiển thị số frame của CVAT. Thanh tiến độ tô xanh cả hai đầu của khoảng. Có thể đặt End trước Start.
 
-```text
-[Start 6400] [End 6440] 41 frame       Frame 40/200 [Nâng cao] [▴]
+![Quickstart với Smoke được chọn thêm và Drinking được chọn xóa](docs/quickstart/after.png)
 
-[event_smoke] [event_drinking] [event_phone]   [+] [−]
-
-┌ Kết quả ────────────────────────────────────────────────┐
-│ + event_smoke, event_phone                          [×] │
-│ − event_drinking                                    [×] │
-│ Thêm 70 · Xóa 3                               [Áp dụng] │
-└─────────────────────────────────────────────────────────┘
-```
-
-- Bảng có đúng ba nút event gồm `event_smoke`, `event_drinking` và `event_phone`. Job thiếu nhãn nào thì nút nhãn đó bị khóa. Tổng số tag của từng event trong job nằm dưới **Complete & Next** và **Clear All Tags**. Số đếm hiện ngay khi mở job và tính cả thay đổi chưa lưu.
-- Bấm ô (hoặc `Alt+1/2/3`) để chọn hay bỏ chọn event; ô đang chọn có nền màu.
-- **+ Thêm** (phím `=`) xếp một dòng thêm toàn bộ event đang chọn; **− Xóa** (phím `-`) xếp một dòng xóa chúng. Dòng giữ nguyên event lúc xếp, nên đổi lựa chọn sau đó chỉ ảnh hưởng dòng kế tiếp. Các dòng chạy từ trên xuống, nên **−** có thể xóa event vừa được dòng trên thêm. Bấm **×** để bỏ một dòng.
-- **−** chỉ xóa các tag có trong khoảng. Nếu cả lựa chọn đều vắng mặt, thao tác tự bỏ qua.
-- **Áp dụng** (phím `Enter`) chạy toàn bộ hàng đợi một lần.
-- Đổi sang khoảng khác khi còn dòng chưa áp dụng: extension hỏi trước khi bỏ chúng.
-- Nút **▴** thu gọn bảng; phím `4`/`5` vẫn hoạt động.
+- Hàng **+** thêm event vào những frame hợp lệ còn thiếu. Hàng **−** xóa event ở những frame có tag, kể cả frame 0. Mỗi hàng có ba nút theo thứ tự Smoke, Drinking, Phone. Nhãn thiếu trong job được gạch ngang.
+- Bấm một nút để chọn, bấm lại để bỏ chọn. Nút đang chọn có dấu tích và khóa cùng event ở hàng đối diện. Có thể chọn nhiều event trên cả hai hàng rồi bấm **Áp dụng** một lần.
+- **Áp dụng** chỉ sáng khi có thay đổi trong khoảng. Sau khi áp dụng, sáu nút trở về trạng thái ban đầu và hai mốc được giữ lại. Nếu dữ liệu vừa thay đổi, bảng giữ lựa chọn và yêu cầu xem lại trước khi bấm lần nữa. Đổi khoảng khi còn lựa chọn sẽ hỏi trước khi bỏ bản nháp.
+- **Alt+1/2/3** chọn hoặc bỏ chọn ở hàng thêm. **Alt+Shift+1/2/3** điều khiển hàng xóa. **Enter** áp dụng khi đang thao tác trên canvas. Khi dùng Tab để di chuyển tới một nút, Enter hoặc Space kích hoạt nút đó. Nút **▴** thu gọn bảng, phím `4` và `5` vẫn đặt mốc.
+- Tổng số tag của từng event trong job nằm dưới **Complete & Next** và **Clear All Tags**. Số đếm hiện ngay khi mở job và tính cả thay đổi chưa lưu.
+- Cặp nút `+` và `−` cạnh mỗi số đếm áp dụng cho toàn bộ job đang mở. `+` thêm nhãn vào frame hợp lệ còn thiếu. `−` hiện số tag cần xóa và yêu cầu xác nhận. Hai nút dùng được khi chưa đặt Start/End.
+- **Undo** và **Redo** bên dưới số đếm hoàn tác hoặc làm lại một lần Apply của extension, từ nút toàn job, Start/End hoặc Nâng cao. Lịch sử nằm trong phiên job hiện tại. Nếu tag liên quan vừa được chỉnh bằng thao tác khác, extension hiện thông báo và giữ dữ liệu hiện tại.
 
 Phím của bảng chỉ có tác dụng trong **Tag annotation** của job đang mở, khi không gõ trong ô nhập, không mở dropdown hay hộp thoại. Khi bảng nhận `4`/`5`, CVAT không gắn tag slot 4/5. Các phím `1/2/3`, điều hướng frame, Save và Undo/Redo vẫn của CVAT. Chrome trên Windows giữ `Ctrl+1…8` để chuyển tab, vì vậy bảng dùng `Alt+1/2/3`.
 
-**Nâng cao** mở hộp thoại cho **Đổi tag** và **Xóa toàn bộ tag trong khoảng**, cùng **Thêm event** và **Xóa tag đã chọn**. Hộp thoại bắt đầu bằng các dòng đã xếp ở bảng, theo đúng thứ tự, rồi thêm một thẻ **Đổi tag** mới. Bấm **+ Thêm thao tác** để thêm thẻ. Đầu hộp thoại hiện số tag của ba event trong khoảng. Thẻ không hợp lệ được tô đỏ kèm lý do và khóa **Áp dụng**. **Hủy** hoặc Esc giữ nguyên hàng đợi ở bảng; **Áp dụng** chạy toàn bộ và làm trống hàng đợi.
+**Nâng cao** mở hộp thoại cho **Đổi tag** và **Xóa toàn bộ tag trong khoảng**, cùng **Thêm event** và **Xóa tag đã chọn**. Hộp thoại bắt đầu bằng các lựa chọn từ bảng nhanh, gộp theo hàng thêm và hàng xóa, rồi thêm một thẻ **Đổi tag** mới. Bấm **+ Thêm thao tác** để thêm thẻ. Đầu hộp thoại hiện số tag của ba event trong khoảng. Thẻ không hợp lệ được tô đỏ kèm lý do và khóa **Áp dụng**. **Hủy** hoặc Esc giữ lựa chọn ở bảng. **Áp dụng** chạy toàn bộ và xóa bản nháp khi thành công.
 
 - **Đổi tag** chọn một tag nguồn (kể cả nhãn ngoài ba event) và một event đích. Nếu frame đã có cả hai, extension giữ tag đích và gỡ tag nguồn.
 - **Xóa toàn bộ tag trong khoảng** áp dụng cho tất cả các nhãn tag trong hai mốc.
 - **Thêm event** chỉ thêm vào các frame hợp lệ còn thiếu event đó; xóa rồi thêm lại cùng một tag không tính là thay đổi.
 
-Extension sửa tag ngay trên trình duyệt, giống như khi bạn gắn tag bằng tay. Trang không tải lại và bạn vẫn ở frame hiện tại. Sau khi áp dụng, Start và End vẫn giữ nguyên và vẫn tô xanh, nên có thể chỉnh tiếp ngay cho cùng khoảng. Muốn đổi khoảng thì bấm Start hoặc End ở frame khác. Start và End chỉ bị xóa sau Complete & Next. Nếu có lỗi, hàng đợi và lựa chọn được giữ lại để thử lại. Nếu tag trong khoảng vừa thay đổi sau lần đọc gần nhất, extension không áp dụng mà hiện số liệu mới để bạn kiểm tra lại.
+Extension sửa tag ngay trên trình duyệt, giống như khi bạn gắn tag bằng tay. Trang không tải lại và bạn vẫn ở frame hiện tại. Sau khi áp dụng, Start và End vẫn giữ nguyên và vẫn tô xanh, nên có thể chỉnh tiếp ngay cho cùng khoảng. Muốn đổi khoảng thì bấm Start hoặc End ở frame khác. Start và End chỉ bị xóa sau Complete & Next. Nếu có lỗi, các lựa chọn được giữ lại để thử lại. Nếu tag trong khoảng vừa thay đổi sau lần đọc gần nhất, extension không áp dụng mà làm mới dữ liệu và yêu cầu xem lại.
 
 Extension chỉ đọc các frame trong khoảng đã đánh dấu, ngay trên trình duyệt, và nhớ lại kết quả theo từng frame. Khoảng mới chồng lên khoảng cũ chỉ phải đọc thêm các frame mới; chuyển frame không làm mất phần đã nhớ. Khi bạn gắn, gỡ tag hoặc Undo, khoảng đang đánh dấu được đọc lại để số liệu trên bảng luôn đúng. Sau khi Complete & Next, extension xóa phần đã nhớ cùng Start/End của job.
 
@@ -64,7 +54,7 @@ Nút yêu cầu job hiện tại được giao cho tài khoản đang đăng nh�
 
 Nút **Clear All Tags** hiện số tag của job, gồm cả thay đổi chưa lưu, và tự cập nhật sau mỗi lần gắn, gỡ tag, Undo, Áp dụng hay xóa. Bấm nút để xem lại số tag, rồi bấm **Xóa toàn bộ tag** để xóa tag ở mọi frame ngay trên trình duyệt.
 
-Việc xóa đi cùng đường với **Áp dụng** của phần chỉnh theo khoảng: trang không tải lại, bạn vẫn ở frame hiện tại, Start/End và hàng đợi ở bảng được giữ (hàng đợi được tính lại theo dữ liệu mới). Box, shape và track vẫn giữ nguyên. CVAT lưu việc xóa ở lần lưu tiếp theo (Auto save, Save hoặc Complete & Next); dòng trạng thái cho biết đã lưu chưa. Trước khi lưu, có thể Undo (Ctrl+Z, mỗi lần một tag). Nếu tag của job thay đổi sau khi mở hộp thoại, extension không xóa mà hiện số mới để bạn kiểm tra lại.
+Việc xóa đi cùng đường với **Áp dụng** của phần chỉnh theo khoảng: trang không tải lại, bạn vẫn ở frame hiện tại, Start/End và các lựa chọn ở bảng được giữ và tính lại theo dữ liệu mới. Box, shape và track vẫn giữ nguyên. CVAT lưu việc xóa ở lần lưu tiếp theo (Auto save, Save hoặc Complete & Next); dòng trạng thái cho biết đã lưu chưa. Trước khi lưu, có thể Undo (Ctrl+Z, mỗi lần một tag). Nếu tag của job thay đổi sau khi mở hộp thoại, extension không xóa mà hiện số mới để bạn kiểm tra lại.
 
 ## Tải lên server
 
