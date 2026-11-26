@@ -314,7 +314,11 @@
     if (controls) {
       const slider = document.querySelector('.cvat-player-slider');
       const anchor = document.querySelector('.cvat-player-frame-selector')?.parentElement;
-      if (slider && anchor && !anchor.querySelector('.cvat-range-buttons')) {
+      if (!slider || !anchor) {
+        controls.rangeMount?.abort();
+        controls.rangeSlider = null;
+      } else if (controls.rangeSlider !== slider || !anchor.querySelector('.cvat-range-buttons')) {
+        controls.rangeSlider = slider;
         attachCVATRangeEditor(controls, slider, anchor);
       }
       return;

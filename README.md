@@ -12,18 +12,19 @@ Bấm một lần để gắn tag vào frame hiện tại. Bấm lại để g�
 
 ## Chỉnh tag theo khoảng frame
 
-Bảng chỉnh nhanh nằm ngay dưới ô số frame khi mở job. Chọn frame đầu rồi bấm **Start** (phím `4`), chọn frame cuối rồi bấm **End** (phím `5`). Thanh tiến độ tô xanh khoảng đã chọn, bao gồm cả hai đầu; End có thể đặt trước Start.
+Bảng chỉnh nhanh nằm ngay dưới ô số frame khi mở job. **Frame 0/200** là vị trí trong job tính từ 0 trên tổng số frame của job. Chọn frame đầu rồi bấm **Start** (phím `4`), chọn frame cuối rồi bấm **End** (phím `5`). Hai mốc hiển thị số frame của CVAT. Thanh tiến độ tô xanh cả hai đầu của khoảng. Có thể đặt End trước Start.
 
 ```text
-[Start 6400] [End 6440] 41 frame    [Nâng cao] [▴]
-[event_smoke 12] [event_drinking 3] [event_phone 0]
+Frame 40/200                      [Nâng cao] [▴]
+[Start 6400] [End 6440] 41 frame
+[event_smoke 12/41] [event_drinking 3/41] [event_phone 0/41]
 [      + Thêm      ] [      − Xóa       ]
 + event_smoke, event_phone                  [×]
 − event_drinking                            [×]
 Thêm 70 · Xóa 3                       [Áp dụng]
 ```
 
-- Bảng luôn có đúng **ba ô event**: `event_smoke`, `event_drinking`, `event_phone`, kèm số frame có tag đó trong khoảng (`12 → 0` là trước và sau khi áp dụng). Các nhãn tag khác của job không hiện ở đây. Nhãn nào không có trong job thì ô của nó bị khóa.
+- Bảng có đúng ba ô event gồm `event_smoke`, `event_drinking` và `event_phone`. Ví dụ, `12/41` nghĩa là 12 trong 41 frame giữa hai mốc có tag đó. Mũi tên `→ 0` cho biết số frame dự kiến sau khi áp dụng hàng đợi. Ô event hiện dấu gạch khi chưa có khoảng và bị khóa nếu job thiếu nhãn.
 - Bấm ô (hoặc `Alt+1/2/3`) để chọn hay bỏ chọn event; ô đang chọn có nền màu.
 - **+ Thêm** (phím `=`) xếp một dòng thêm toàn bộ event đang chọn; **− Xóa** (phím `-`) xếp một dòng xóa chúng. Dòng giữ nguyên event lúc xếp, nên đổi lựa chọn sau đó chỉ ảnh hưởng dòng kế tiếp. Các dòng chạy từ trên xuống, nên **−** có thể xóa event vừa được dòng trên thêm. Bấm **×** để bỏ một dòng.
 - Dòng không hợp lệ (ví dụ xóa event không có trong khoảng) được tô đỏ kèm lý do và khóa **Áp dụng**.

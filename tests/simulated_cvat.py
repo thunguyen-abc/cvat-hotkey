@@ -159,6 +159,7 @@ def main():
             shapes = sim('count("shape")')
             status = page.locator('#cvat-event-complete-status')
             panel = page.locator('.cvat-quick-panel')
+            frame_position = panel.locator('.cvat-quick-frame-position')
             start, end, advanced = (panel.locator(c) for c in ('.cvat-quick-start', '.cvat-quick-end', '.cvat-quick-advanced'))
             rows = panel.locator('.cvat-quick-row')
             info = panel.locator('.cvat-quick-info')
@@ -215,6 +216,29 @@ def main():
                     result[str(f)] = sorted(tags)
                 return result
             VALID = set(range(100)) - {12, 13}
+
+            print('Quickstart frame position')
+            check(frame_position.inner_text() == '0/100', 'player shows frame offset and inclusive job size before marking')
+            position_mark = server.mark()
+            sim('setFrame(99)')
+            check(frame_position.inner_text() == '99/100', 'position updates as the player moves')
+            page.evaluate("""() => {
+                const handle = document.querySelector('.cvat-player-slider [role="slider"]');
+                handle.setAttribute('aria-valuemin', '6400');
+                handle.setAttribute('aria-valuemax', '6599');
+                handle.setAttribute('aria-valuenow', '6400');
+            }""")
+            check(frame_position.inner_text() == '0/200', 'a job starting at 6400 starts at position 0/200')
+            panel.locator('.cvat-quick-toggle').click()
+            check(frame_position.is_visible() and start.is_visible(), 'position and marks stay visible when collapsed')
+            panel.locator('.cvat-quick-toggle').click()
+            page.evaluate("""() => {
+                const handle = document.querySelector('.cvat-player-slider [role="slider"]');
+                handle.setAttribute('aria-valuemin', '0');
+                handle.setAttribute('aria-valuemax', '99');
+                window.__sim.setFrame(0);
+            }""")
+            check(server.since(position_mark) == [] and sim('takeReads()') == [], 'navigation adds no requests or annotation reads')
 
             print('Clear All Tags count')
             badge_matches('on job open')
@@ -384,8 +408,8 @@ def main():
             before = tags_by_frame()
             check(not any(pressed(n) for n in EVENTS), 'event boxes start off')
             box_counts = [event(n).locator('.cvat-quick-event-count').inner_text() for n in EVENTS]
-            real = [str(sum(1 for f in range(52, 69) if label in before[str(f)])) for label in (1, 2, 3)]
-            check(box_counts == real, f'event boxes show their count in the range {box_counts}')
+            real = [f'{sum(1 for f in range(52, 69) if label in before[str(f)])}/17' for label in (1, 2, 3)]
+            check(box_counts == real, f'event boxes show tagged frames out of total marked frames {box_counts}')
             check(quick_apply.is_disabled() and panel.locator('.cvat-quick-add').is_disabled(),
                   '+ and Apply locked with no event selected')
             event('event_smoke').click()
@@ -405,7 +429,10 @@ def main():
             rows.nth(1).locator('.cvat-quick-drop').click()
             check(rows.count() == 2 and [rows.nth(i).get_attribute('data-mode') for i in range(2)] == ['add', 'remove'],
                   '× drops the middle row')
-            check('→' in event('event_phone').locator('.cvat-quick-event-count').inner_text(), 'event box shows now → after')
+            phone = event('event_phone')
+            check(phone.locator('.cvat-quick-event-count').inner_text() == real[2] and
+                  phone.locator('.cvat-quick-event-next').inner_text() == '→ 17',
+                  'event box keeps the current ratio and shows the projected count separately')
             preview = info.inner_text()
             check(preview.startswith('Thêm ') and ' · Xóa ' in preview, f'panel preview shows the totals ({preview})')
             refreshes = sim('refreshes')
@@ -503,6 +530,16 @@ def main():
             page.remove_listener('dialog', on_dialog)
             check(len(prompts) == 1 and native() == [] and start.inner_text() == 'Start 50',
                   f'one key listener after remount ({len(prompts)} confirm, nothing leaked)')
+            page.evaluate("""() => {
+                const slider = document.querySelector('.cvat-player-slider');
+                const replacement = slider.cloneNode(true);
+                replacement.querySelector('.cvat-range-band').remove();
+                replacement.querySelector('[role="slider"]').setAttribute('aria-valuenow', '56');
+                slider.replaceWith(replacement);
+            }""")
+            wait('document.querySelector(".cvat-quick-frame-position").textContent === "56/100"', 'new slider supplies the frame counter')
+            check(rows.count() == 1 and page.locator('.cvat-range-band').count() == 1,
+                  'slider replacement keeps the draft and one highlight')
             rows.nth(0).locator('.cvat-quick-drop').click()
 
             print('Tag cache')

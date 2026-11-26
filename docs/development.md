@@ -7,7 +7,7 @@ This guide is for developers who continue work on this repository. User document
 - Repository: https://github.com/thunguyen-abc/cvat-hotkey, branch `main`.
 - Platform: Chrome extension, Manifest V3, installed with **Load unpacked**.
 - Target site: https://cvat-tai.abcstudio.online. Reference job: `/tasks/681/jobs/6306`.
-- Latest release: `v1.7.0` (Quickstart range panel, Clear All Tags count). Check `gh release list` before you choose the next version.
+- Release baseline: `v1.7.1` (Quickstart frame position and event ratios). Check GitHub Releases before choosing the next version.
 
 The extension adds features to the existing CVAT annotation UI. It does not need any change to the CVAT server. Continue with this codebase; do not rewrite it.
 
@@ -20,7 +20,7 @@ The extension adds features to the existing CVAT annotation UI. It does not need
 | `range-plan.js` | Pure planner for range edits (add, replace, remove selected, remove all), and `CVAT_EVENT_LABELS`, the slot 1/2/3 event list shared with `hotkeys.js` and the range panel. |
 | `bridge-client.js` | Isolated-world client for the bridge (DOM events carrying JSON), the rate-limited GET queue, and the "saved or not" status text. |
 | `hotkeys.js` | Keys `1`/`2`/`3` toggle `event_smoke`/`event_drinking`/`event_phone` on the current frame. Switches Standard jobs to Tag annotation once per job load. |
-| `range-editor.js` | Quickstart panel (Start/End, three event buttons, + / − queue, Apply; keys 4/5, Alt+1–3, =, -, Enter), the progress-bar highlight and the **Nâng cao** dialog. Panel and dialog share one Apply path. |
+| `range-editor.js` | Quickstart panel (job frame position, Start/End, event coverage, + / − queue, Apply), the progress-bar highlight and the **Nâng cao** dialog. Panel and dialog share one Apply path. |
 | `complete-next.js` | **Complete & Next** and **Clear All Tags** (with the job's live tag count) buttons. |
 | `tests/fake-cvat.html`, `tests/simulated_cvat.py` | Simulated CVAT job and the regression test. Not shipped in the ZIP. |
 | `complete-next.css` | Styling for every injected control and dialog. |
@@ -34,6 +34,8 @@ The extension adds features to the existing CVAT annotation UI. It does not need
 Content scripts do not call `chrome.*` APIs. This is deliberate: when the extension reloads itself, the scripts already in open CVAT tabs keep working until the page reloads. Keep it that way, or handle invalidated extension contexts first.
 
 ## Working with CVAT's in-memory annotations
+
+The Quickstart header reads the player slider for the zero-based job position and inclusive job size. It observes player changes independently of range planning. Event card ratios come from the range snapshot and count distinct frames per event over the inclusive Start–End span. The queued plan supplies the projected numbers shown beside the ratios.
 
 The deployed server runs CVAT **2.56.1** (`/api/server/about`). When a job opens, CVAT loads all of its annotations into a client-side collection (cvat-core). It saves by comparing that collection with the copy it last received from the server, and sends only the difference: one `PATCH …/annotations?action=update`, one `action=delete` and one `action=create`, each only if non-empty. Each is retried on 504. Autosave runs on the user's `autoSaveInterval`. "Finish the job" saves first, then sets the state to completed.
 

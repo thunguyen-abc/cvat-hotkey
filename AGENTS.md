@@ -1,0 +1,18 @@
+# CVAT Event Hotkeys
+
+This repo builds a Manifest V3 Chrome extension for CVAT. Read [the development guide](docs/development.md) before changing annotation handling, shortcuts, or the updater. The [Quickstart plan](docs/range-quickstart-plan.md) records the original UX requirements. Use this file and the README for the current behavior.
+
+## Quickstart since v1.7.1
+
+- The panel sits under CVAT's frame input. Its header shows the zero-based position within the current job over the inclusive job size, for example `0/200` when the player is at frame 6400 in a job spanning 6400–6599. Start and End use CVAT's absolute frame numbers.
+- The frame counter observes the player slider's `aria-valuenow`, `aria-valuemin` and `aria-valuemax`. CVAT 2.56.1 supplies these from the current frame and job bounds. Navigation updates the counter without re-reading annotations or rebuilding the queue. Disconnect the observer on mount abort and attach to the new slider if CVAT replaces it. [CVAT player source](https://github.com/cvat-ai/cvat/blob/v2.56.1/cvat-ui/src/components/annotation-page/top-bar/player-navigation.tsx)
+- Quickstart displays three event buttons only. Unselected buttons are neutral and selected buttons have a colored background and `aria-pressed="true"`. Each shows distinct frames tagged with that event over the inclusive number of frames between Start and End. The arrow shows the projected number of tagged frames after applying the queue. Before a range loads, the cards show a dash and wait for the snapshot. The **Nâng cao** dialog still supports other tag labels as sources and starts from the queued actions.
+- Apply in either view reuses `planCVATRangeBatch` and the `applyRange` bridge call. It updates CVAT in memory. The CVAT Save, Auto save, and Complete & Next flows upload the diff. Keep Clear All Tags and Apply on the existing annotation refresh path so the player stays ready on the same frame.
+
+## Verification and release
+
+- Run `node tests/range_plan_test.js`, `python -X utf8 tests/simulated_cvat.py`, and `node --check` on the JavaScript files you changed. The simulation covers the frame counter, nonzero job bounds, replacement of the slider, and the distinction between current and projected event counts.
+- The v1.7.1 baseline passed 11 planner tests and 150 simulated checks. The panel was inspected in simulated CVAT at 1366, 390, and 320 px.
+- Still verify on a real test job when available. Check `Alt+1/2/3`, that `4/5` marks the range without also toggling CVAT's native slots, that the panel is well placed during navigation, and that the frame ratios and Clear All Tags badge update. The old Clear All reload report was never reproduced in simulation. Check it on a test job and record what happens before changing the bridge. The badge uses `job.annotations.statistics().total.tag` with an export fallback, and its live updates rely on the CVAT store notification.
+- To release, bump `manifest.json`, commit and push `main`, and push the matching `vX.Y.Z` tag. The [publish workflow](.github/workflows/publish.yml) creates the ZIP and its SHA-256 sidecar. On the owner's Windows machine, the configured writable SSH remote is `git@github-abcstudio:thunguyen-abc/cvat-hotkey.git`. HTTPS origin has been usable for fetch, and push returned HTTP 403. Check workflow and release state using the GitHub API if `gh` is unauthenticated.
+- Once both release assets are published, run the installed updater with `check -Confirmed` and verify `status` and the installed manifest. The updater script lives at `%LOCALAPPDATA%\CVATEventHotkeys\cvat-hotkey-updater.ps1`. Existing CVAT tabs pick up the new content scripts on their next page load. Check for unsaved annotations before refreshing an existing tab.

@@ -117,7 +117,6 @@
     actions: { async get() { return { undo: [['Action', actionCount]], redo: [] }; } },
   };
 
-  const slider = document.querySelector('[role="slider"]');
   const state = {
     annotation: {
       job: { instance: job },
@@ -131,7 +130,10 @@
   window.__sim = { objects, job, state, refreshes: 0, labels,
     tagsOn(frame) { return live().filter((o) => o.frame === frame && o.type === 'tag').map((o) => o.labelId).sort(); },
     count(type, labelId) { return live().filter((o) => o.type === type && (labelId === undefined || o.labelId === labelId)).length; },
-    setFrame(frame) { state.annotation.player.frame.number = frame; slider.setAttribute('aria-valuenow', String(frame)); },
+    setFrame(frame) {
+      state.annotation.player.frame.number = frame;
+      document.querySelector('[role="slider"]').setAttribute('aria-valuenow', String(frame));
+    },
     // A change CVAT's history does not reveal (tests the live re-check on Apply).
     addTag(frame, labelId) { add('tag', frame, labelId, null); },
     // A normal user action, e.g. a hotkey: CVAT updates its history in the store.

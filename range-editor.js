@@ -51,19 +51,26 @@ function attachCVATRangeEditor(control, slider, anchor) {
   const panel = element('section', undefined, 'cvat-range-buttons cvat-quick-panel');
   panel.setAttribute('aria-label', 'Chỉnh tag theo khoảng frame');
   const head = element('div', undefined, 'cvat-quick-head');
+  const frameCounter = element('div', undefined, 'cvat-quick-frame');
+  const framePosition = element('strong', '—', 'cvat-quick-frame-position');
+  frameCounter.append(element('span', 'Frame'), framePosition);
   const start = button('Start', 'cvat-quick-start');
   const end = button('End', 'cvat-quick-end');
   start.title = 'Đặt frame hiện tại làm mốc đầu (phím 4)';
   end.title = 'Đặt frame hiện tại làm mốc cuối (phím 5)';
-  const length = element('span', undefined, 'cvat-quick-length');
   const advanced = button('Nâng cao', 'cvat-quick-advanced');
   advanced.setAttribute('aria-haspopup', 'dialog');
   const toggle = button(undefined, 'cvat-quick-toggle');
-  head.append(start, end, length, advanced, toggle);
+  head.append(frameCounter, advanced, toggle);
 
   const body = element('div', undefined, 'cvat-quick-body');
   body.id = 'cvat-quick-body-' + job.jobId;
   toggle.setAttribute('aria-controls', body.id);
+  const marks = element('div', undefined, 'cvat-quick-marks');
+  marks.setAttribute('role', 'group');
+  marks.setAttribute('aria-label', 'Mốc khoảng frame');
+  const length = element('span', undefined, 'cvat-quick-length');
+  marks.append(start, end, length);
   const events = element('div', undefined, 'cvat-quick-events');
   events.setAttribute('role', 'group');
   events.setAttribute('aria-label', 'Event cần chỉnh');
@@ -74,10 +81,17 @@ function attachCVATRangeEditor(control, slider, anchor) {
     node.dataset.event = name;
     node.dataset.slot = String(index + 1);
     node.setAttribute('aria-pressed', 'false');
-    node.append(element('span', name, 'cvat-quick-event-name'), element('span', '', 'cvat-quick-event-count'));
+    const label = element('span', undefined, 'cvat-quick-event-name');
+    const [prefix, suffix] = name.split('_');
+    label.append(prefix + '_', element('wbr'), suffix);
+    const counts = element('span', undefined, 'cvat-quick-event-metrics');
+    const count = element('span', '—', 'cvat-quick-event-count');
+    const projection = element('span', undefined, 'cvat-quick-event-next');
+    counts.append(count, projection);
+    node.append(label, counts);
     node.onclick = () => toggleEvent(index);
     events.append(node);
-    return node;
+    return { node, count, projection };
   });
   const queueActions = element('div', undefined, 'cvat-quick-actions');
   const addRow = button('+ Thêm', 'cvat-quick-add');
@@ -95,7 +109,7 @@ function attachCVATRangeEditor(control, slider, anchor) {
   footer.append(info, apply);
   const hint = element('small', '4 / 5 mốc · Alt+1–3 event · = thêm · - xóa · Enter áp dụng', 'cvat-quick-hint');
   body.append(events, queueActions, queue, footer, hint);
-  panel.append(head, body);
+  panel.append(head, marks, body);
   anchor.append(panel);
   const band = element('div', undefined, 'cvat-range-band');
   slider.append(band);
@@ -136,6 +150,23 @@ function attachCVATRangeEditor(control, slider, anchor) {
   const planFor = (range, snapshot, ops) => planCVATRangeBatch({
     tags: snapshot.tags, low: range.low, high: range.high, addFrames: snapshot.addFrames, operations: ops,
   });
+
+  function paintFramePosition() {
+    const current = frame('now');
+    const min = frame('min');
+    const max = frame('max');
+    const ready = [current, min, max].every(Number.isInteger) && current >= min && current <= max;
+    const position = ready ? (current - min) + '/' + (max - min + 1) : '—';
+    frameCounter.title = ready ? 'Frame ' + current + ' · Vị trí trong job tính từ 0' : '';
+    if (framePosition.textContent !== position) framePosition.textContent = position;
+  }
+
+  // A label can have more than one tag on a frame. The event cards measure frame coverage.
+  function countEventFrames(tags, ids) {
+    const framesById = new Map(ids.filter((id) => id !== null).map((id) => [id, new Set()]));
+    for (const { labelId, frame: number } of tags) framesById.get(labelId)?.add(number);
+    return framesById;
+  }
 
   function paint() {
     const min = frame('min');
@@ -187,28 +218,30 @@ function attachCVATRangeEditor(control, slider, anchor) {
     const ids = eventIdsOf(snapshot);
     const result = snapshot ? planFor(range, snapshot, operations(state.rows)) : null;
     const ready = Boolean(snapshot) && !state.busy;
-    length.textContent = range ? (range.high - range.low + 1) + ' frame' : '';
+    const rangeLength = range ? range.high - range.low + 1 : 0;
+    length.textContent = range ? rangeLength + ' frame' : '';
     length.hidden = !range;
     advanced.disabled = !ready;
     advanced.title = ready ? 'Đổi tag, xóa toàn bộ tag trong khoảng và các thao tác khác'
       : 'Chọn Start và End để chỉnh tag';
 
-    const before = snapshot ? countCVATLabels(snapshot.tags) : new Map();
-    const after = result ? countCVATLabels(result.desired) : before;
-    eventButtons.forEach((node, index) => {
+    const before = countEventFrames(snapshot?.tags ?? [], ids);
+    const after = state.rows.length && result ? countEventFrames(result.desired, ids) : before;
+    eventButtons.forEach(({ node, count, projection }, index) => {
       const name = CVAT_EVENT_LABELS[index];
       const id = ids[index];
       const missing = Boolean(snapshot) && id === null;
       node.disabled = !ready || id === null;
       node.dataset.missing = String(missing);
       node.setAttribute('aria-pressed', String(state.selected.has(name) && !missing));
-      const now = id === null ? 0 : before.get(id) || 0;
-      const next = id === null ? 0 : after.get(id) || 0;
-      const count = node.lastChild;
-      count.textContent = snapshot && id !== null ? (now === next ? String(now) : now + ' → ' + next) : '';
-      count.dataset.changed = String(now !== next);
+      const now = before.get(id)?.size ?? 0;
+      const next = after.get(id)?.size ?? 0;
+      count.textContent = snapshot && !missing ? now + '/' + rangeLength : '—';
+      projection.hidden = now === next;
+      projection.textContent = now === next ? '' : '→ ' + next;
       node.title = missing ? 'Job không có nhãn ' + name
-        : name + ' (Alt+' + (index + 1) + ')' + (snapshot ? ': ' + now + ' frame trong khoảng' : '');
+        : name + ' (Alt+' + (index + 1) + ')' + (snapshot ? ': ' + now + '/' + rangeLength + ' frame trong khoảng' : '') +
+          (now === next ? '' : ' · Sau áp dụng: ' + next + '/' + rangeLength);
     });
     const chosen = selectedIds(snapshot);
     addRow.disabled = removeRow.disabled = !ready || !chosen.length;
@@ -285,7 +318,7 @@ function attachCVATRangeEditor(control, slider, anchor) {
     void load();
   }
   function toggleEvent(index) {
-    if (eventButtons[index].disabled) return;
+    if (eventButtons[index].node.disabled) return;
     const name = CVAT_EVENT_LABELS[index];
     if (state.selected.has(name)) state.selected.delete(name);
     else state.selected.add(name);
@@ -407,7 +440,7 @@ function attachCVATRangeEditor(control, slider, anchor) {
     const slot = /^(?:Digit|Numpad)([1-3])$/.exec(code)?.[1];
     if (slot && event.altKey !== event.ctrlKey && !event.metaKey && !event.shiftKey) {
       const index = Number(slot) - 1;
-      return eventButtons[index].disabled ? null : () => toggleEvent(index);
+      return eventButtons[index].node.disabled ? null : () => toggleEvent(index);
     }
     if (modified) return null;
     if (key === '=' || key === '+') return addRow.disabled ? null : () => enqueue('add');
@@ -444,12 +477,20 @@ function attachCVATRangeEditor(control, slider, anchor) {
   }, signal);
 
   state.mounted = { render, load };
+  // Follow the player during navigation or playback without rebuilding the queue or reading tags.
+  const frameObserver = new MutationObserver(paintFramePosition);
+  frameObserver.observe(slider, {
+    childList: true, subtree: true, attributes: true,
+    attributeFilter: ['aria-valuenow', 'aria-valuemin', 'aria-valuemax'],
+  });
   signal.addEventListener('abort', () => {
     clearTimeout(reloadTimer);
+    frameObserver.disconnect();
     panel.remove();
     band.remove();
     if (state.mounted?.render === render) state.mounted = null;
   }, { once: true });
+  paintFramePosition();
   render();
   void load();
 
