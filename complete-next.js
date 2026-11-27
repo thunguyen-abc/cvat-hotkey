@@ -332,9 +332,12 @@
     button.textContent = 'Complete & Next';
     button.classList.add('cvat-event-primary');
     button.setAttribute('aria-describedby', 'cvat-event-complete-status');
-    // Metadata sits below the job buttons beside Menu, separate from the player.
-    const meta = document.createElement('span');
+    // Keep the job controls alive when the player is remounted in the same job.
+    const meta = document.createElement('section');
     meta.className = 'cvat-job-meta';
+    const jobCaption = document.createElement('div');
+    jobCaption.className = 'cvat-job-caption';
+    jobCaption.textContent = 'Toàn job';
     const eventCounts = document.createElement('span');
     eventCounts.className = 'cvat-job-event-counts';
     eventCounts.setAttribute('role', 'group');
@@ -415,10 +418,11 @@
       clearButton.title = `Job có ${count} tag, tính cả thay đổi chưa lưu`;
       clearButton.setAttribute('aria-label', `Clear All Tags (${count} tag)`);
     };
-    meta.append(eventCounts, historyButtons, statusBox);
-    wrapper.append(button, clearButton, meta);
+    meta.append(jobCaption, eventCounts, historyButtons);
+    wrapper.append(button, clearButton, statusBox);
     menu.after(wrapper);
-    controls = { job, menu, wrapper, button, clearButton, status, notify, showTagCount, controller: new AbortController() };
+    controls = { job, menu, wrapper, button, clearButton, jobMeta: meta, status, notify, showTagCount,
+      controller: new AbortController() };
     const control = controls;
     const { signal } = control.controller;
     let latestCounts;

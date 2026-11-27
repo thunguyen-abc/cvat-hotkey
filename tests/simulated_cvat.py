@@ -189,11 +189,18 @@ def main():
 
             def event_counts_match(message):
                 expression = """() => {
-                    const group = document.querySelector('.cvat-event-complete-next .cvat-job-event-counts');
+                    const group = document.querySelector('.cvat-edit-tools .cvat-job-event-counts');
                     return group?.children.length === 3 && [...group.children].map(item => item.querySelector('strong').textContent)
                         .every((value, index) => value === String(window.__sim.count('tag', index + 1)));
                 }"""
                 check(wait(expression, message), message)
+
+            def range_counts_match(low, high, message):
+                tags = tags_by_frame()
+                expected = [str(sum(tags[str(f)].count(label) for f in range(low, high + 1))) for label in (1, 2, 3)]
+                expression = '''JSON.stringify([...document.querySelectorAll('.cvat-quick-counts strong')]
+                    .map(value => value.textContent)) === JSON.stringify(''' + json.dumps(expected) + ')'
+                wait(expression, message)
 
             def set_range(low, high):
                 sim(f'setFrame({low})'); start.click()
@@ -252,10 +259,8 @@ def main():
             print('Clear All Tags count')
             badge_matches('on job open')
             event_counts_match('whole-job event counters are ready before marking a range')
-            job_counts = page.get_by_role('group', name='Tổng số event trong job').bounding_box()
-            job_button = page.get_by_role('button', name='Complete & Next').bounding_box()
-            check(job_counts['y'] >= job_button['y'] + job_button['height'],
-                  'whole-job counters sit below the job buttons')
+            check(panel.locator('.cvat-quick-counts strong').all_inner_texts() == ['—'] * 3,
+                  'range counts wait for both marks')
             check(sim('statistics') > 0 and sim('exports') == 0, 'count read from CVAT statistics, no whole-job export')
 
             def run_edit(low, high, mode, sources=(), target=None, expect_preview=None, tamper=None):
@@ -413,6 +418,13 @@ def main():
             viewport = page.viewport_size or page.evaluate('({width: innerWidth, height: innerHeight})')
             for width in (1366, 390, 320):
                 page.set_viewport_size({'width': width, 'height': 768})
+                quick_box = panel.bounding_box()
+                job_box = page.locator('.cvat-job-meta').bounding_box()
+                adjacent = job_box['x'] + job_box['width'] <= quick_box['x'] and job_box['y'] == quick_box['y']
+                stacked = job_box['y'] >= quick_box['y'] + quick_box['height'] and job_box['x'] == quick_box['x']
+                check((adjacent if width == 1366 else stacked) and all(
+                    0 <= b['x'] and b['x'] + b['width'] <= width for b in (quick_box, job_box)),
+                    f'{width}px: job controls and Quickstart share one layout and fit the viewport')
                 for name in EVENTS:
                     add_box = event(name).bounding_box()
                     remove_box = event(name, 'remove').bounding_box()
@@ -428,6 +440,7 @@ def main():
             check(start.text_content() == 'Start 52' and end.text_content() == 'End 68', 'keys 4/5 mark Start/End')
             check(native() == [], '4/5 taken by Quickstart: CVAT slot 4/5 not toggled')
             wait_ready()
+            range_counts_match(52, 68, 'counts use the marked inclusive range')
             before = tags_by_frame()
             check(not any(pressed(n) for n in EVENTS), 'event boxes start off')
             check(quick_apply.is_disabled(), 'empty draft disables Apply')
@@ -485,13 +498,16 @@ def main():
             badge_matches('after panel Apply')
             event_counts_match('job-wide event counters include unsaved Apply changes')
             wait_ready()
+            range_counts_match(52, 68, 'range counts include the unsaved mixed Apply')
             mixed_result = tags_by_frame()
             page.locator('.cvat-job-undo').click()
             page.wait_for_function('!document.querySelector(".cvat-job-redo").disabled')
             check(tags_by_frame() == before, 'one extension Undo reverses every part of a mixed range Apply')
+            range_counts_match(52, 68, 'range counts follow undo')
             page.locator('.cvat-job-redo').click()
             page.wait_for_function('!document.querySelector(".cvat-job-undo").disabled && document.querySelector(".cvat-job-redo").disabled')
             check(tags_by_frame() == mixed_result, 'one extension Redo restores the full mixed batch')
+            range_counts_match(52, 68, 'range counts follow redo')
             wait_ready()
             event('event_smoke').click()
             check(quick_apply.is_disabled(), 'adding a label present on every eligible frame disables Apply')
@@ -776,6 +792,7 @@ def main():
                 smoke.source = 'auto';
             }""")
             set_range(0, 0)
+            range_counts_match(0, 0, 'range counts include a single frame at frame zero')
             event('event_smoke', 'remove').click()
             event('event_phone', 'remove').click()
             check(1 in sim('tagsOn(0)') and 3 not in sim('tagsOn(0)'), 'frame 0 has smoke and no phone before removal')
@@ -828,9 +845,13 @@ def main():
                 window.__sim.setFrame(6410);
             }""")
             field = page.locator('.cvat-player-frame-selector')
-            field.fill('6410'); field.focus(); page.keyboard.press('Control+a')
-            check(field.evaluate('n => n.selectionEnd - n.selectionStart') == 4 and start.text_content() == 'Start 0',
-                  'Ctrl+A selects text in the frame input')
+            field.fill('6410')
+            field.press('Control+a')
+            wait("document.activeElement.matches('.cvat-player-frame-selector') && "
+                 'document.activeElement.selectionEnd - document.activeElement.selectionStart === 4',
+                 'Ctrl+A selects text in the frame input')
+            marks = page.evaluate('JSON.parse(sessionStorage.getItem("cvat-event-range:77"))')
+            check(marks == {'start': 0, 'end': 99}, 'Ctrl+A in the frame input preserves the marks')
             blur(); native()
             workspace = page.locator('.cvat-workspace-selector .ant-select-selection-item')
             workspace.evaluate("n => n.textContent = 'Standard'")

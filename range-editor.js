@@ -44,6 +44,7 @@ function attachCVATRangeEditor(control, slider, anchor) {
   }
 
   // ---- Panel ---------------------------------------------------------------------------
+  const tools = element('div', undefined, 'cvat-edit-tools');
   const panel = element('section', undefined, 'cvat-range-buttons cvat-quick-panel');
   panel.setAttribute('aria-label', 'Chỉnh tag theo khoảng frame');
   const top = element('div', undefined, 'cvat-quick-top');
@@ -78,7 +79,19 @@ function attachCVATRangeEditor(control, slider, anchor) {
   selectAll.title = 'Đặt Start và End theo toàn bộ job (Ctrl+A trong Tag annotation)';
   selectAll.setAttribute('aria-keyshortcuts', 'Control+A');
   marks.append(start, end, selectAll);
-  top.append(head, marks);
+  const counts = element('div', undefined, 'cvat-quick-counts');
+  counts.setAttribute('role', 'group');
+  counts.setAttribute('aria-label', 'Số tag trong khoảng Start–End');
+  counts.title = 'Số tag trong khoảng Start–End, tính cả hai mốc';
+  const countItems = CVAT_EVENT_LABELS.map((name) => {
+    const item = element('span', displayCVATLabel(name), 'cvat-quick-count');
+    item.dataset.event = name;
+    const value = element('strong', '—');
+    item.append(value);
+    counts.append(item);
+    return value;
+  });
+  top.append(head, marks, counts);
   const events = element('div', undefined, 'cvat-quick-events');
   const eventButtons = [];
   for (const mode of ['add', 'remove']) {
@@ -112,7 +125,8 @@ function attachCVATRangeEditor(control, slider, anchor) {
   footer.append(length, info, apply);
   body.append(events, footer);
   panel.append(top, body);
-  anchor.append(panel);
+  tools.append(panel, control.jobMeta);
+  anchor.append(tools);
   const band = element('div', undefined, 'cvat-range-band');
   slider.append(band);
 
@@ -145,6 +159,9 @@ function attachCVATRangeEditor(control, slider, anchor) {
   const snapshotFor = (range) => (sameRange(state.snapshot, range) ? state.snapshot : null);
   const eventIdsOf = (snapshot) => CVAT_EVENT_LABELS.map((name) =>
     snapshot?.labels.find((label) => label.name === name)?.id ?? null);
+  function setSnapshot(snapshot, range) {
+    state.snapshot = { ...snapshot, ...range, labelCounts: countCVATLabels(snapshot.tags) };
+  }
   // Resolve the draft by label name against this snapshot; the dialog gets its own copy.
   function draftRows(snapshot) {
     const ids = eventIdsOf(snapshot);
@@ -215,7 +232,7 @@ function attachCVATRangeEditor(control, slider, anchor) {
     if (snapshot) {
       const previous = snapshotFor(range);
       if (state.eventActions.size && previous && previous.key !== snapshot.key) state.notice = staleNotice;
-      state.snapshot = { ...snapshot, ...range };
+      setSnapshot(snapshot, range);
     } else {
       state.snapshot = null;
       state.error = error;
@@ -234,6 +251,12 @@ function attachCVATRangeEditor(control, slider, anchor) {
     start.disabled = end.disabled = toggle.disabled = locked;
     paintFramePosition();
     length.textContent = range ? (range.high - range.low + 1) + ' frame' : '';
+    counts.setAttribute('aria-busy', String(loading));
+    const labelCounts = snapshot?.labelCounts;
+    eventIdsOf(snapshot).forEach((id, index) => {
+      const text = labelCounts && id !== null ? String(labelCounts.get(id) ?? 0) : '—';
+      if (countItems[index].textContent !== text) countItems[index].textContent = text;
+    });
     advanced.disabled = !ready;
     advanced.title = range ? 'Đổi tag, xóa toàn bộ tag trong khoảng và các thao tác khác' : 'Chọn Start và End';
     for (const node of eventButtons) {
@@ -335,7 +358,7 @@ function attachCVATRangeEditor(control, slider, anchor) {
       const result = await applyChange(range, snapshot.key, change);
       if (jobSignal.aborted) return;
       if (result.stale) {
-        state.snapshot = { ...result.snapshot, ...range };
+        setSnapshot(result.snapshot, range);
         state.notice = staleNotice;
       } else {
         applied();
@@ -435,7 +458,7 @@ function attachCVATRangeEditor(control, slider, anchor) {
     clearTimeout(reloadTimer);
     frameObserver.disconnect();
     lockObserver.disconnect();
-    panel.remove();
+    tools.remove();
     band.remove();
     if (state.mounted?.render === render) state.mounted = null;
   }, { once: true });

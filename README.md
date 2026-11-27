@@ -20,7 +20,8 @@ Bảng chỉnh nhanh nằm ngay dưới ô số frame khi mở job. **Frame 0/20
 - Bấm một nút để chọn, bấm lại để bỏ chọn. Nút đang chọn có dấu tích và khóa cùng event ở hàng đối diện. Có thể chọn nhiều event trên cả hai hàng rồi bấm **Áp dụng** một lần.
 - **Áp dụng** chỉ sáng khi có thay đổi trong khoảng. Sau khi áp dụng, sáu nút trở về trạng thái ban đầu và hai mốc được giữ lại. Nếu dữ liệu vừa thay đổi, bảng giữ lựa chọn và yêu cầu xem lại trước khi bấm lần nữa. Đổi khoảng khi còn lựa chọn sẽ hỏi trước khi bỏ bản nháp.
 - **Alt+1/2/3** chọn hoặc bỏ chọn ở hàng thêm. **Alt+Shift+1/2/3** điều khiển hàng xóa. **Enter** áp dụng khi đang thao tác trên canvas. Khi dùng Tab để di chuyển tới một nút, Enter hoặc Space kích hoạt nút đó. Nút **▴** thu gọn bảng, phím `4` và `5` vẫn đặt mốc.
-- Tổng số tag của từng event trong job nằm dưới **Complete & Next** và **Clear All Tags**. Số đếm hiện ngay khi mở job và tính cả thay đổi chưa lưu.
+- Ngay dưới **Start** và **End**, bảng chỉnh nhanh đếm tag Smoke, Drinking và Phone trong khoảng, tính cả hai mốc và thay đổi chưa lưu.
+- Bảng **Toàn job** nằm cạnh bảng chỉnh nhanh và xếp bên dưới trên màn hình hẹp. Số đếm toàn job hiện ngay khi mở job và tính cả thay đổi chưa lưu.
 - Cặp nút `+` và `−` cạnh mỗi số đếm áp dụng cho toàn bộ job đang mở. `+` thêm nhãn vào frame hợp lệ còn thiếu. `−` hiện số tag cần xóa và yêu cầu xác nhận. Hai nút dùng được khi chưa đặt Start/End.
 - **Undo** và **Redo** bên dưới số đếm hoàn tác hoặc làm lại một lần Apply của extension, từ nút toàn job, Start/End hoặc Nâng cao. Lịch sử nằm trong phiên job hiện tại. Nếu tag liên quan vừa được chỉnh bằng thao tác khác, extension hiện thông báo và giữ dữ liệu hiện tại.
 

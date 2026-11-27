@@ -7,7 +7,7 @@ This guide is for developers who continue work on this repository. User document
 - Repository: https://github.com/thunguyen-abc/cvat-hotkey, branch `main`.
 - Platform: Chrome extension, Manifest V3, installed with **Load unpacked**.
 - Target site: https://cvat-tai.abcstudio.online. Reference job: `/tasks/681/jobs/6306`.
-- Release baseline: `v1.8.2` (removes Apply completion notices and improves error layout). Check GitHub Releases before choosing the next version.
+- Release baseline: `v1.8.3` (places whole-job controls beside Quickstart and adds Start–End counts). Check GitHub Releases before choosing the next version.
 
 The extension adds features to the existing CVAT annotation UI. It does not need any change to the CVAT server. Continue with this codebase; do not rewrite it.
 
@@ -35,7 +35,7 @@ Content scripts do not call `chrome.*` APIs. This is deliberate: when the extens
 
 ## Working with CVAT's in-memory annotations
 
-The Quickstart header reads the player slider for the zero-based job position and inclusive job size. It observes player changes independently of range planning. Job-wide event totals sit below the job buttons and use the same bridge update as the Clear All Tags badge. CVAT statistics provide `total.tag` and `label[name].tag`. The bridge falls back to counting the in-memory export. The buttons beside the job totals request a whole-job range snapshot using the active job bounds, then call the existing planner and Apply path.
+The Quickstart header reads the player slider for the zero-based job position and inclusive job size. It observes player changes independently of range planning. The counters below Start and End use `countCVATLabels` on the existing inclusive range snapshot. Job-wide event totals sit beside Quickstart and use the same bridge update as the Clear All Tags badge. CVAT statistics provide `total.tag` and `label[name].tag`. The bridge falls back to counting the in-memory export. The buttons beside the job totals request a whole-job range snapshot using the active job bounds, then call the existing planner and Apply path.
 
 Quickstart keeps pending actions in a per-job Map keyed by event name. The opposite row is locked by the state transition itself. Both the mouse and Alt(+Shift)+slot invoke that transition. The panel resolves selected names through the range snapshot and passes up to two operations to the batch planner. Success clears the Map, while stale data and failed commits preserve it for retry. Advanced receives an independent ordered copy, followed by its usual Replace card. The job toolbar and both range entry points continue to share the extension Apply history.
 

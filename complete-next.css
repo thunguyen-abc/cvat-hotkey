@@ -1,4 +1,4 @@
-:is(.cvat-event-complete-next, .cvat-event-clear-dialog, .cvat-range-buttons) {
+:is(.cvat-event-complete-next, .cvat-event-clear-dialog, .cvat-range-buttons, .cvat-job-meta) {
   --ink: #233d40;
   --muted: #63777b;
   --line: #dde4e7;
@@ -20,7 +20,7 @@
   margin-inline: 4px;
 }
 
-:is(.cvat-event-complete-next, .cvat-range-buttons, .cvat-event-clear-dialog) button.ant-btn {
+:is(.cvat-event-complete-next, .cvat-range-buttons, .cvat-job-meta, .cvat-event-clear-dialog) button.ant-btn {
   box-sizing: border-box;
   display: inline-flex;
   align-items: center;
@@ -41,11 +41,11 @@
   cursor: pointer;
 }
 
-:is(.cvat-event-complete-next, .cvat-range-buttons, .cvat-event-clear-dialog) button.ant-btn:hover:enabled {
+:is(.cvat-event-complete-next, .cvat-range-buttons, .cvat-job-meta, .cvat-event-clear-dialog) button.ant-btn:hover:enabled {
   border-color: #637b8a;
   box-shadow: none;
 }
-:is(.cvat-range-buttons, .cvat-event-complete-next, .cvat-event-clear-dialog) :focus-visible {
+:is(.cvat-range-buttons, .cvat-event-complete-next, .cvat-job-meta, .cvat-event-clear-dialog) :focus-visible {
   outline: 2px solid #176b60;
   outline-offset: 2px;
 }
@@ -63,18 +63,23 @@
   border-color: var(--danger);
   color: white;
 }
-:is(.cvat-event-complete-next, .cvat-range-buttons, .cvat-event-clear-actions) button.ant-btn:disabled {
+:is(.cvat-event-complete-next, .cvat-range-buttons, .cvat-job-meta, .cvat-event-clear-actions) button.ant-btn:disabled {
   color: #687783;
   background: #edf0f2;
   border-color: #d5dce0;
   cursor: default;
 }
 
-.cvat-range-buttons {
+.cvat-edit-tools {
   position: absolute;
   top: calc(100% + 7px);
   right: 0;
   z-index: 8;
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: flex-start;
+  gap: 8px;
+  width: max-content;
 }
 .cvat-range-buttons button { min-width: 58px; font-variant-numeric: tabular-nums; }
 .cvat-range-buttons button[data-marked="true"] {
@@ -163,11 +168,11 @@ dialog.cvat-event-clear-dialog {
 .cvat-event-clear-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 .cvat-event-clear-actions button.ant-btn { min-height: 40px; min-width: 72px; }
 .cvat-job-meta {
-  position: absolute; top: calc(100% + 6px); left: 0; z-index: 10;
-  width: min(292px, calc(100vw - 24px)); box-sizing: border-box;
+  width: 262px; box-sizing: border-box;
   padding: 8px; border: 1px solid var(--line); border-radius: 10px;
   background: white; box-shadow: 0 4px 12px #0f172a0c;
 }
+.cvat-job-caption { margin: 0 0 6px 2px; color: var(--muted); font-size: 12px; font-weight: 600; }
 .cvat-job-event-counts { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 6px; }
 .cvat-job-event-count {
   display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); align-items: center;
@@ -177,7 +182,7 @@ dialog.cvat-event-clear-dialog {
 .cvat-job-event-count > span { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: baseline; color: var(--muted); }
 .cvat-job-event-count strong { line-height: 1.2; font-size: 14px; font-variant-numeric: tabular-nums; }
 .cvat-job-edit-history { display: flex; justify-content: flex-end; gap: 6px; margin-top: 6px; }
-.cvat-event-complete-next :is(.cvat-job-event-count, .cvat-job-edit-history) button.ant-btn {
+.cvat-job-meta button.ant-btn {
   min-width: 0; min-height: 26px; padding: 2px 5px; border-radius: 6px; font-size: 12px;
 }
 .cvat-job-undo::after { content: "↶"; }
@@ -185,11 +190,16 @@ dialog.cvat-event-clear-dialog {
 .cvat-event-complete-next > button.ant-btn { min-height: 32px; font-size: 12px; border-radius: 6px; }
 .cvat-event-complete-next > button.ant-btn-dangerous { background: #f9eeee; border-color: #efdada; }
 .cvat-event-complete-status {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 10;
+  width: min(292px, calc(100vw - 24px));
+  box-sizing: border-box;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 24px;
   align-items: start;
   gap: 6px;
-  margin-top: 8px;
   padding: 8px;
   font-size: 12px;
   white-space: normal;
@@ -210,8 +220,15 @@ dialog.cvat-event-clear-dialog {
 @media (max-width: 1100px) {
   .cvat-event-complete-next { position: absolute; top: 100%; left: 0; z-index: 8; padding: 4px; background: white; border: 1px solid var(--line); border-radius: 9px; }
 }
+@media (max-width: 1000px) {
+  .cvat-edit-tools { flex-direction: column; width: min(348px, calc(100vw - 16px)); }
+  .cvat-job-meta { width: 100%; }
+}
 @media (max-width: 600px) {
-  .cvat-range-buttons { position: fixed; inset: auto 8px 12px auto; }
+  .cvat-edit-tools {
+    position: fixed; inset: auto 8px 12px; width: auto; max-width: 348px; margin-inline-start: auto;
+    max-height: calc(100dvh - 24px); overflow-y: auto;
+  }
   dialog.cvat-event-clear-dialog { padding: 16px; }
 }
 
@@ -234,11 +251,9 @@ dialog.cvat-event-clear-dialog {
 
 /* Two aligned event rows share one compact surface under the player. */
 .cvat-range-buttons.cvat-quick-panel {
-
-
-
   box-sizing: border-box;
-  width: min(348px, calc(100vw - 16px));
+  width: 348px;
+  max-width: 100%;
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -334,6 +349,19 @@ dialog.cvat-event-clear-dialog {
 .cvat-quick-marks strong:empty::after { content: "—"; color: #87979a; }
 .cvat-quick-panel button.cvat-quick-select-all { background: #fff; }
 .cvat-quick-head button.ant-btn { height: 26px; }
+.cvat-quick-counts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.cvat-quick-count {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 4px;
+  padding: 4px 6px;
+  border-radius: 5px;
+  background: #eef5f3;
+  color: var(--muted);
+  font-size: 11px;
+}
+.cvat-quick-count strong { color: var(--ink); font-size: 13px; }
 .cvat-quick-panel button.ant-btn[aria-pressed="true"], .cvat-quick-panel button.ant-btn[aria-pressed="true"]:hover:enabled,
 .cvat-quick-panel button.ant-btn[aria-pressed="true"]:disabled { background: #dfefeb; border-color: #79aa9e; color: #246f61; }
 .cvat-quick-footer { margin-top: 10px; }
@@ -353,9 +381,6 @@ dialog.cvat-event-clear-dialog {
 @media (prefers-reduced-motion: reduce) {
   .cvat-quick-panel button.ant-btn { transition: none; }
   .cvat-quick-apply[aria-busy="true"]::after { animation: none; }
-}
-@media (max-width: 600px) {
-  .cvat-range-buttons.cvat-quick-panel { max-height: calc(100dvh - 24px); overflow-y: auto; }
 }
 
 /* Several operations in one dialog (cards run top to bottom). */
